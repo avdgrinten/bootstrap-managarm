@@ -1,0 +1,28 @@
+name: Build Container
+
+on: [push, pull_request]
+
+jobs:
+    build-rootfs:
+        name: Build rootfs
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Install prerequisites
+            run: |
+                sudo apt-get install umoci
+          - name: Checkout
+            uses: actions/checkout@v2
+          - name: Build container
+            run: |
+                docker build -t managarm-buildc docker/
+          - name: Convert Docker to OCI
+            run: |
+                skopeo copy docker-daemon:managarm-buildc:latest oci:managarm-buildc:latest
+          - name: Unpack OCI image to bundle
+            run: |
+                umoci unpack --rootless --image managarm-buildc:latest buildc-bundle/
+                sudo tar -cf bundle.tar buildc-bundle/
+          - uses: actions/upload-artifact@v2
+            with:
+                name: rootfs
+                path: bundle.tar
