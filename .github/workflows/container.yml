@@ -1,0 +1,46 @@
+name: Container
+
+on: [push, pull_request]
+
+jobs:
+    build-rootfs:
+        name: Build cbuildrt rootfs
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Install prerequisites
+            run: |
+                sudo apt-get install umoci
+          - name: Checkout
+            uses: actions/checkout@v2
+          - name: Build container
+            run: |
+                docker build -t managarm-buildc docker/
+          - name: Build OCI runtime bundle
+            run: |
+                set -x
+
+                skopeo copy docker-daemon:managarm-buildc:latest oci:buildc-image:latest
+                umoci unpack --rootless --image buildc-image:latest buildc-bundle/
+                rm -rf buildc-image/
+          - name: Finalize cbuildroot rootfs
+            run: |
+                set -x
+
+                # Perform some post-processing.
+                mkdir buildc-bundle/rootfs/dev/pts
+                ln -s /proc/self/fd/0 buildc-bundle/rootfs/dev/stdin
+                ln -s /proc/self/fd/1 buildc-bundle/rootfs/dev/stdout
+                ln -s /proc/self/fd/2 buildc-bundle/rootfs/dev/stderr
+                touch buildc-bundle/rootfs/dev/{full,null,zero}
+                touch buildc-bundle/rootfs/dev/tty
+                touch buildc-bundle/rootfs/dev/{random,urandom}
+
+                # Make directories for bind mounts.
+                mkdir -p buildc-bundle/rootfs/var/lib/managarm-buildenv/{src,build}
+
+                # Pack the resulting rootfs.
+                tar -c --zstd -f bundle.tar.zst -C buildc-bundle/ rootfs
+          - uses: actions/upload-artifact@v2
+            with:
+                name: rootfs
+                path: bundle.tar.zst
