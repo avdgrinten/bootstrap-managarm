@@ -25,10 +25,14 @@ jobs:
               path: src/
           - name: Compute xbstrap-pipeline graph
             run: |
+                set -x
                 cp ../src/ci/pipeline.yml .
                 echo '{"pkg_management": {"format": "xbps"}}' > bootstrap-site.yml
                 xbstrap init ../src
                 xbstrap rolling-versions fetch
-                xbstrap rolling-versions determine --json | jq '{"commits":map_values({"rolling_id":.})}' > ../src/bootstrap-commits.yml
+                xbstrap rolling-versions determine --json | jq '{"commits":map_values({"rolling_id":.})}' > new-bootstrap-commits.yml
+                # Ensure that the previs xbstrap command does not see bootstrap-commits.yml
+                # until the file is fully written.
+                mv new-bootstrap-commits.yml ../src/bootstrap-commits.yml
                 xbstrap-pipeline compute-graph --artifact
             working-directory: build/
