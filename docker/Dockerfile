@@ -57,6 +57,8 @@ RUN apt-get update \
 		libpng-dev \		
 		# Used by many gnu build steps		
 		m4 \
+		# Required to build images for Android's fastboot protocol.
+		mkbootimg \
 		# Used by limine
 		mtools \
 		# Used by libjpeg-turbo for performance reasons
@@ -83,6 +85,8 @@ RUN apt-get update \
 		rsync \
 		# makeinfo is used in gnu build systems
 		texinfo \
+		# Provides 'mkimage', required to build Allwinner D1 images.
+		u-boot-tools \
 		# Used by protobuf
 		unzip \
 		# We use wget to fetch some stuff further down
