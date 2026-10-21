@@ -13,7 +13,14 @@ packages:
     source:
       subdir: meta-sources
       version: '1.0'
-    revision: 20
+    revision: 21
+    config_files:
+      - '/etc/passwd'
+      - '/etc/group'
+      - '/etc/shadow'
+      - '/etc/gshadow'
+      - '/etc/hosts'
+      - '/etc/resolv.conf'
     configure: []
     build:
       # Create initial directories

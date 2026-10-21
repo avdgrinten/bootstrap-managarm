@@ -563,7 +563,9 @@ packages:
       - openssl
       - pam
       - zlib
-    revision: 8
+    revision: 9
+    config_files:
+      - '/etc/ssh/sshd_config'
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
