@@ -150,21 +150,26 @@ def name_of_protocol(protocol):
     }[protocol]
 
 
-def make_default_entries(writer, *, protocol):
-    writer.write_entry(
-        f"Weston (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-    )
-    writer.write_entry(
-        f"kmscon (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-        extra_cmdline="systemd.unit=kmscon.target",
-    )
-    writer.write_entry(
-        f"SDDM (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-        extra_cmdline="systemd.unit=sddm.target",
-    )
+# The boot targets that the installation provides, judged by their unit files.
+def installed_targets(root):
+    unit_dir = os.path.join(root, "usr/lib/systemd/system")
+    targets = {target for target in ["kmscon", "sddm"] if os.path.exists(os.path.join(unit_dir, f"{target}.target"))}
+    if "kmscon" not in targets:
+        raise ConfigError(f"{root}: kmscon.target does not exist, the kmscon package is required")
+    return targets
+
+
+def make_default_entries(writer, *, protocol, targets):
+    entries = []
+    if "sddm" in targets:
+        entries.append(("SDDM", "systemd.unit=sddm.target"))
+    entries.append(("kmscon", "systemd.unit=kmscon.target"))
+    for title, extra_cmdline in entries:
+        writer.write_entry(
+            f"{title} (via {name_of_protocol(protocol)})",
+            protocol=protocol,
+            extra_cmdline=extra_cmdline,
+        )
 
 
 def make_extra_entries(writer, *, protocol):
@@ -175,7 +180,7 @@ def make_extra_entries(writer, *, protocol):
     )
 
 
-def write_live_menu(writer, *, arch):
+def write_live_menu(writer, *, arch, targets):
     writer.write_header()
 
     limine_available = arch in {"x86_64", "riscv64"}
@@ -193,29 +198,29 @@ def write_live_menu(writer, *, arch):
         default_protocol = "efi"
 
     with writer.submenu("+Managarm: default options"):
-        make_default_entries(writer, protocol=default_protocol)
+        make_default_entries(writer, protocol=default_protocol, targets=targets)
 
     with writer.submenu("Managarm: extra options"):
         make_extra_entries(writer, protocol=default_protocol)
 
     if default_protocol != "efi":
         with writer.submenu("Managarm: UEFI chainload"):
-            make_default_entries(writer, protocol="efi")
+            make_default_entries(writer, protocol="efi", targets=targets)
 
     if limine_available and default_protocol != "limine":
         with writer.submenu("Managarm: Limine protocol"):
-            make_default_entries(writer, protocol="limine")
+            make_default_entries(writer, protocol="limine", targets=targets)
 
     if linux_available:
         with writer.submenu("Managarm: Linux protocol"):
-            make_default_entries(writer, protocol="linux")
+            make_default_entries(writer, protocol="linux", targets=targets)
 
     if mb2_available:
         with writer.submenu("Managarm: Multiboot2 protocol"):
-            make_default_entries(writer, protocol="multiboot2")
+            make_default_entries(writer, protocol="multiboot2", targets=targets)
 
 
-def write_limine_conf(path, config, *, arch):
+def write_limine_conf(path, config, *, arch, targets):
     # eir detects e9 under QEMU on its own, so x86 needs no bochs.
     base_cmdline = [
         "serial" if arch != "x86_64" else None,
@@ -223,12 +228,13 @@ def write_limine_conf(path, config, *, arch):
     ]
     with open(path, "w") as f:
         writer = LimineWriter(f, base_cmdline=base_cmdline, user_cmdline=config.cmdline)
-        write_live_menu(writer, arch=arch)
+        write_live_menu(writer, arch=arch, targets=targets)
 
 
 def cmd_esp_contents(args):
     config = Config.load(args.root)
-    write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch)
+    targets = installed_targets(args.root)
+    write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch, targets=targets)
 
 
 def main():
