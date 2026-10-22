@@ -5,6 +5,7 @@
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -21,8 +22,41 @@ LIVE_ACCOUNTS = [
 ]
 
 
+class InstallError(Exception):
+    pass
+
+
+def run(cmd, **kwargs):
+    return subprocess.run([str(arg) for arg in cmd], check=True, **kwargs)
+
+
 def provision(root, *args):
-    subprocess.run([sys.executable, PROVISION, "apply", "--root", root, *args], check=True)
+    run([sys.executable, PROVISION, "apply", "--root", root, *args])
+
+
+def xbps_tool(name):
+    # On the build host, xbstrap's static xbps is the one that can install Managarm packages.
+    host_tool = os.path.expanduser(f"~/.xbstrap/bin/{name}")
+    if os.path.exists(host_tool):
+        return host_tool
+    tool = shutil.which(name)
+    if not tool:
+        raise InstallError(f"{name} not found")
+    return tool
+
+
+def xbps_install(root, packages, *, sync, target_arch=None, repositories=()):
+    # The host's xbps may have been built with another sysconfdir, so name the root's config explicitly.
+    conf_dir = os.path.abspath(os.path.join(root, "etc/xbps.d"))
+    cmd = [xbps_tool("xbps-install"), "-y", "-r", root, "-C", conf_dir]
+    if sync:
+        cmd.append("-S")
+    for repository in repositories:
+        cmd += ["-R", repository]
+    env = dict(os.environ)
+    if target_arch:
+        env["XBPS_TARGET_ARCH"] = target_arch
+    run(cmd + packages, env=env)
 
 
 def cmd_sysroot(args):
@@ -30,18 +64,7 @@ def cmd_sysroot(args):
 
     # xbps-install takes the repository and its signing key from the root, so this goes first.
     provision(root, "--arch", args.arch, f"--xbps-{args.xbps_channel}")
-    # The host's xbps may have been built with another sysconfdir, so name the root's config explicitly.
-    conf_dir = os.path.abspath(os.path.join(root, "etc/xbps.d"))
-
-    xbps_install = os.path.expanduser("~/.xbstrap/bin/xbps-install")
-    env = {**os.environ, "XBPS_TARGET_ARCH": args.arch}
-
-    subprocess.run(
-        [xbps_install, "-y", "-S", "-r", root, "-C", conf_dir, "base", "limine"],
-        env=env,
-        check=True,
-    )
-
+    xbps_install(root, ["base", "limine"], sync=True, target_arch=args.arch)
     provision(root, *LIVE_ACCOUNTS)
 
 
@@ -71,7 +94,14 @@ def main():
     sysroot_parser.set_defaults(func=cmd_sysroot)
 
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except InstallError as e:
+        print(f"managarm-install: error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"managarm-install: error: {' '.join(e.cmd)} failed with status {e.returncode}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
