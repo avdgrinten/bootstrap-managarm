@@ -2,7 +2,7 @@
 
 # Provisions a Managarm root: users, sshd and the xbps repository.
 # Each option only adds to what the packages ship, and rerunning with the same options is a no-op.
-# The host (xbstrap, build-image.py) and the target run this script, so it only uses the stdlib.
+# The host (xbstrap, managarm-install.py sysroot) and the target run this script, so it only uses the stdlib.
 
 import argparse
 import os
