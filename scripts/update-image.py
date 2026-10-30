@@ -22,6 +22,7 @@ elevation_method = None
 verbose = False
 MANAGARM_ROOT_PART_TYPE = "64212B3B-56A1-4DFB-971E-BC8CD027996A"
 EFI_SYSTEM_PART_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+PARTITION_CONFIG_PATH = "etc/managarm/partitions.toml"
 # container.uid and container.gid of bootstrap-site.yml.
 CONTAINER_BUILD_ID = 1000
 global_mount_info = None
@@ -187,17 +188,21 @@ def get_partuuid(partitions, idx, what):
     raise RuntimeError(f"Could not determine the PARTUUID of the {what} partition")
 
 
-# Must happen before the root fs is synced or made, so that the file also lands on the image.
-def write_partition_config(sysroot, root_partuuid, esp_partuuid):
-    path = os.path.join(sysroot, "etc/managarm/partitions.toml")
+# This does not go into the sysroot since the same sysroot can back several images.
+def write_partition_config(root_partuuid, esp_partuuid):
+    tmpdir = tempfile.TemporaryDirectory()
+    tmpdirs.append(tmpdir) # Prevent GC until script terminates.
+
+    path = os.path.join(tmpdir.name, "partitions.toml")
     if verbose:
         print(f"update-image: Writing {path} (root PARTUUID {root_partuuid})")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("[root]\n")
         f.write(f'partuuid = "{root_partuuid}"\n')
         f.write("\n[esp]\n")
         f.write(f'partuuid = "{esp_partuuid}"\n')
+    os.chmod(path, 0o644)
+    return path
 
 
 class MountAction:
@@ -437,6 +442,7 @@ def generate_plan(arch, sysroot, scriptdir, root_partuuid):
         "boot/grub",
         "boot/managarm",
         "opt",
+        "etc/managarm",
     ]:
         yield FsAction.CREATE_DIR, x
 
@@ -594,8 +600,7 @@ class UpdateFsAction:
             needs_root = not os.access(target_mntpoint, os.W_OK, effective_ids=True)
 
         root_partuuid = get_partuuid(partitions, root_idx, "root")
-        write_partition_config(
-            self.sysroot,
+        partition_config = write_partition_config(
             root_partuuid,
             get_partuuid(partitions, efi_idx, "EFI system"),
         )
@@ -671,6 +676,12 @@ class UpdateFsAction:
                 FsAction.RSYNC: plan_rsync,
             },
         )
+
+        # This comes last since the rsync of etc/ deletes everything that is not in the sysroot.
+        config_target = os.path.join(target_mntpoint, PARTITION_CONFIG_PATH)
+        steps.append(["mkdir", "-p", os.path.dirname(config_target)])
+        owner_args = ["-o", "0", "-g", "0"] if needs_root or is_fuse2fs else []
+        steps.append(["install", "-m", "644"] + owner_args + [partition_config, config_target])
 
         print("update-image: Updating the file system...")
 
@@ -800,6 +811,28 @@ def repair_root_fs(image, start):
         )
 
 
+def stamp_partition_config(image, start, partition_config):
+    device = "{}?offset={}".format(image, 512 * start)
+    target = "/" + PARTITION_CONFIG_PATH
+    commands = [
+        f"rm {target}",
+        f"write {partition_config} {target}",
+        f"sif {target} uid 0",
+        f"sif {target} gid 0",
+    ]
+    logged_check_call([debugfs_command, "-w", "-f", "-", device], input="\n".join(commands).encode())
+
+    # debugfs exits with zero even if one of its commands failed.
+    written = logged_run(
+        [debugfs_command, "-R", f"cat {target}", device],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    ).stdout
+    with open(partition_config, "rb") as f:
+        if f.read() != written:
+            raise RuntimeError(f"Failed to write {target} to {image}")
+
+
 def populate_esp(image, start, boot_dirs, boot_files):
     # manipulate it using mtools
     dosimg = "{}@@{}".format(image, start * 512)
@@ -895,8 +928,7 @@ class RemakeImageAction:
             return str(uuid.UUID(partuuids[0]))
 
         root_partuuid = partuuid_of_type(MANAGARM_ROOT_PART_TYPE, "root")
-        write_partition_config(
-            self.sysroot,
+        partition_config = write_partition_config(
             root_partuuid,
             partuuid_of_type(EFI_SYSTEM_PART_TYPE, "EFI system"),
         )
@@ -931,6 +963,7 @@ class RemakeImageAction:
                 "{}K".format(size // 1024),
             ]
             logged_check_call(cmd)
+            stamp_partition_config(self.image, start, partition_config)
 
         def setup_esp(start, size):
             # image_create creates a 256MiB ESP partition, while older images
@@ -1115,6 +1148,7 @@ except (FileNotFoundError, json.JSONDecodeError):
 sfdisk_command = try_find_command_exec("sfdisk")
 mkfsvfat_command = try_find_command_exec("mkfs.vfat")
 mke2fs_command = try_find_command_exec("mke2fs")
+debugfs_command = try_find_command_exec("debugfs")
 e2fsck_command = try_find_command_exec("e2fsck")
 
 if verbose:
