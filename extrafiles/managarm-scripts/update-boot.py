@@ -25,7 +25,7 @@ class Config:
     )
 
     @staticmethod
-    def load(root):
+    def load(root, *, root_partuuid=None):
         def read(name, *, required):
             path = os.path.join(root, "etc/managarm", name)
             try:
@@ -61,18 +61,22 @@ class Config:
         warn_unknown(path, data, "", {"cmdline"})
         config.cmdline = get(path, data, "", "cmdline", str, default="")
 
-        # Written once the partitions of the target disk are known.
-        path, data = read("partitions.toml", required=True)
-        warn_unknown(path, data, "", {"root", "esp"})
+        path = "--root-partuuid"
+        config.esp_partuuid = None
+        if root_partuuid is None:
+            # Written once the partitions of the target disk are known.
+            path, data = read("partitions.toml", required=True)
+            warn_unknown(path, data, "", {"root", "esp"})
 
-        root_part = get(path, data, "", "root", dict, required=True)
-        warn_unknown(path, root_part, "root.", {"partuuid"})
-        config.root_partuuid = get(path, root_part, "root.", "partuuid", str, required=True).lower()
+            root_part = get(path, data, "", "root", dict, required=True)
+            warn_unknown(path, root_part, "root.", {"partuuid"})
+            root_partuuid = get(path, root_part, "root.", "partuuid", str, required=True)
 
-        esp_part = get(path, data, "", "esp", dict, default={})
-        warn_unknown(path, esp_part, "esp.", {"partuuid"})
-        config.esp_partuuid = get(path, esp_part, "esp.", "partuuid", str)
+            esp_part = get(path, data, "", "esp", dict, default={})
+            warn_unknown(path, esp_part, "esp.", {"partuuid"})
+            config.esp_partuuid = get(path, esp_part, "esp.", "partuuid", str)
 
+        config.root_partuuid = root_partuuid.lower()
         if not config.root_partuuid:
             raise ConfigError(f"{path}: root.partuuid is empty")
         return config
@@ -227,7 +231,7 @@ def write_limine_conf(path, config, *, arch):
 
 
 def cmd_esp_contents(args):
-    config = Config.load(args.root)
+    config = Config.load(args.root, root_partuuid=args.root_partuuid)
     write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch)
 
 
@@ -249,6 +253,10 @@ def main():
     )
     esp_parser.add_argument(
         "--esp-dir", required=True, help="Directory that the ESP files are written to"
+    )
+    esp_parser.add_argument(
+        "--root-partuuid",
+        help="PARTUUID of the root partition (default: from ROOT/etc/managarm/partitions.toml)",
     )
     esp_parser.set_defaults(func=cmd_esp_contents)
 
