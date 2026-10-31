@@ -384,7 +384,39 @@ class MountAction:
 FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS INSTALL CP RSYNC")
 
 
-def generate_plan(arch, sysroot, scriptdir):
+def run_update_boot(sysroot, scriptdir, arch, esp_dir, root_partuuid):
+    def run(script):
+        return subprocess.run(
+            [
+                sys.executable,
+                script,
+                "esp-contents",
+                "--root",
+                sysroot,
+                "--arch",
+                arch.split('-')[0],
+                "--esp-dir",
+                esp_dir,
+                f"--root-partuuid={root_partuuid}",
+            ],
+        )
+
+    fallback = os.path.join(scriptdir, "../extrafiles/managarm-scripts/update-boot.py")
+    update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
+    if not os.path.exists(update_boot):
+        # Sysroots from repositories that predate managarm-scripts, e.g., CI's stable images.
+        print("update-image: The sysroot has no update-boot.py, using the one from extrafiles/")
+        update_boot = fallback
+
+    res = run(update_boot)
+    if res.returncode == 2:
+        # argparse exits with 2 before anything is written. Repositories can lag behind this script.
+        print("update-image: The sysroot's update-boot.py rejected its arguments, using the one from extrafiles/")
+        res = run(fallback)
+    res.check_returncode()
+
+
+def generate_plan(arch, sysroot, scriptdir, root_partuuid):
     tmpdir = tempfile.TemporaryDirectory()
     tmpdirs.append(tmpdir) # Prevent GC until script terminates.
 
@@ -413,25 +445,7 @@ def generate_plan(arch, sysroot, scriptdir):
     yield FsAction.INSTALL, "initrd.cpio", "boot/managarm", dict(ignore_sysroot=True)
 
     limine_conf = os.path.join(tmpdir.name, "limine.conf")
-    update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
-    if not os.path.exists(update_boot):
-        # Sysroots from repositories that predate managarm-scripts, e.g., CI's stable images.
-        print("update-image: The sysroot has no update-boot.py, using the one from extrafiles/")
-        update_boot = os.path.join(scriptdir, "../extrafiles/managarm-scripts/update-boot.py")
-    subprocess.run(
-        [
-            sys.executable,
-            update_boot,
-            "esp-contents",
-            "--root",
-            sysroot,
-            "--arch",
-            arch.split('-')[0],
-            "--esp-dir",
-            tmpdir.name,
-        ],
-        check=True,
-    )
+    run_update_boot(sysroot, scriptdir, arch, tmpdir.name, root_partuuid)
 
     if arch == "x86_64-managarm":
         yield FsAction.INSTALL, "usr/managarm/bin/eir-mb2", "boot/managarm"
@@ -579,9 +593,10 @@ class UpdateFsAction:
 
             needs_root = not os.access(target_mntpoint, os.W_OK, effective_ids=True)
 
+        root_partuuid = get_partuuid(partitions, root_idx, "root")
         write_partition_config(
             self.sysroot,
-            get_partuuid(partitions, root_idx, "root"),
+            root_partuuid,
             get_partuuid(partitions, efi_idx, "EFI system"),
         )
 
@@ -647,7 +662,7 @@ class UpdateFsAction:
             ensure_sysroot_links(self.sysroot)
 
         iterate_plan(
-            generate_plan(self.arch, self.sysroot, scriptdir),
+            generate_plan(self.arch, self.sysroot, scriptdir, root_partuuid),
             {
                 FsAction.CREATE_DIR: plan_create_dir,
                 FsAction.ENSURE_LINKS: plan_ensure_links,
@@ -879,15 +894,16 @@ class RemakeImageAction:
                 raise RuntimeError(f"{self.image} does not have exactly one {what} partition")
             return str(uuid.UUID(partuuids[0]))
 
+        root_partuuid = partuuid_of_type(MANAGARM_ROOT_PART_TYPE, "root")
         write_partition_config(
             self.sysroot,
-            partuuid_of_type(MANAGARM_ROOT_PART_TYPE, "root"),
+            root_partuuid,
             partuuid_of_type(EFI_SYSTEM_PART_TYPE, "EFI system"),
         )
 
         # start by correcting the sysroot slightly
         iterate_plan(
-            generate_plan(self.arch, self.sysroot, scriptdir),
+            generate_plan(self.arch, self.sysroot, scriptdir, root_partuuid),
             {
                 FsAction.CREATE_DIR: self._create_dir,
                 FsAction.ENSURE_LINKS: self._ensure_links,
