@@ -45,6 +45,19 @@ def maybe_chown(path, uid, gid):
         os.chown(path, uid, gid, follow_symlinks=False)
 
 
+# A root that one regular user owns has no real ownership, and files of root would not be that user's.
+def drop_to_root_owner(root):
+    if os.geteuid() != 0:
+        return
+    try:
+        st = os.stat(os.path.join(root, "usr"))
+    except FileNotFoundError:
+        return
+    if st.st_uid != 0:
+        os.setgid(st.st_gid)
+        os.setuid(st.st_uid)
+
+
 def read_text(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -260,6 +273,8 @@ def check_name(name):
 
 
 def cmd_apply(args):
+    drop_to_root_owner(args.root)
+
     # Package installation runs after a provisioning pass that sets up xbps only, before /etc/passwd exists.
     if args.user or args.groups or args.password_hash:
         accounts = Accounts(args.root)
