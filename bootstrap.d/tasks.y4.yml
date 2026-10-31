@@ -35,6 +35,7 @@ tasks:
   # Adds the live image's users and the stable xbps repository to the sysroot.
   # Rerunning it is harmless, and it must rerun after every install of core-files.
   - name: provision-sysroot
+    root_in_container: true
     pkgs_required:
       - core-files
       - managarm-scripts
@@ -132,6 +133,7 @@ tasks:
     containerless: true
 
   - name: remake-image
+    root_in_container: true
     pkgs_required:
       - core-files
       - limine
