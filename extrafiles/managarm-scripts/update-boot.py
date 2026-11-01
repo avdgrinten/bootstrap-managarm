@@ -5,12 +5,27 @@
 
 import argparse
 import contextlib
+import json
 import os
 import platform
+import shutil
+import subprocess
 import sys
+import tempfile
 import tomllib
 
 ARCHES = ["x86_64", "aarch64", "riscv64"]
+BIOS_BOOT_TYPE = "21686148-6449-6E6F-744E-656564454649"
+EIR_FILES = {
+    "x86_64": ["eir-limine", "eir-mb2", "eir-uefi"],
+    "aarch64": ["eir-limine", "eir-linux.bin", "eir-uefi"],
+    "riscv64": ["eir-limine", "eir-linux.bin", "eir-uefi"],
+}
+EFI_LOADERS = {
+    "x86_64": "BOOTX64.EFI",
+    "aarch64": "BOOTAA64.EFI",
+    "riscv64": "BOOTRISCV64.EFI",
+}
 
 
 class ConfigError(Exception):
@@ -237,37 +252,109 @@ def cmd_esp_contents(args):
     write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch, targets=targets)
 
 
+# Partition nodes are numbered from zero, e.g. sda0 or nvme0n1p0.
+def part_name(disk, idx):
+    return f"{disk}p{idx}" if disk[-1].isdigit() else f"{disk}{idx}"
+
+
+# Returns the ESP's disk and partition, and whether the disk has a BIOS boot partition.
+def find_esp(partuuid):
+    for disk in sorted(os.listdir("/sys/block")):
+        # /sys/block also lists partitions; most fail here, and FAT passes as an empty MBR.
+        res = subprocess.run(["sfdisk", "-J", f"/dev/{disk}"], capture_output=True, text=True)
+        if res.returncode:
+            continue
+        parts = json.loads(res.stdout)["partitiontable"].get("partitions", [])
+        for idx, part in enumerate(parts):
+            if part.get("uuid", "").lower() == partuuid.lower():
+                return disk, part_name(disk, idx), any(p["type"].upper() == BIOS_BOOT_TYPE for p in parts)
+    raise ConfigError(f"no disk has a partition with the PARTUUID {partuuid}")
+
+
+def cmd_update_esp(args):
+    config = Config.load(args.root)
+    if not config.esp_partuuid:
+        raise ConfigError(f"{args.root}: etc/managarm/partitions.toml does not set esp.partuuid")
+    disk, esp, has_bios_boot = find_esp(config.esp_partuuid)
+
+    bin_dir = os.path.join(args.root, "usr/managarm/bin")
+    limine_dir = os.path.join(args.root, "usr/share/limine")
+
+    with tempfile.TemporaryDirectory() as tree:
+        os.makedirs(os.path.join(tree, "EFI/BOOT"))
+        os.makedirs(os.path.join(tree, "managarm"))
+
+        subprocess.run(
+            [sys.executable, os.path.join(bin_dir, "gen-initrd.py"), "--triple", f"{args.arch}-managarm",
+             "--sysroot", args.root, "-o", os.path.join(tree, "managarm/initrd.cpio")],
+            check=True,
+        )
+        for eir in EIR_FILES[args.arch]:
+            shutil.copy(os.path.join(bin_dir, eir), os.path.join(tree, "managarm"))
+        shutil.copy(os.path.join(limine_dir, EFI_LOADERS[args.arch]), os.path.join(tree, "EFI/BOOT"))
+        if has_bios_boot:
+            shutil.copy(os.path.join(limine_dir, "limine-bios.sys"), tree)
+        targets = installed_targets(args.root)
+        write_limine_conf(os.path.join(tree, "limine.conf"), config, arch=args.arch, targets=targets)
+
+        # -s merges into directories that exist already, and -o overwrites existing files.
+        sources = [os.path.join(tree, f) for f in os.listdir(tree)]
+        subprocess.run(
+            ["mcopy", "-s", "-o", "-i", f"/dev/{esp}", *sources, "::/"],
+            check=True,
+            env={**os.environ, "MTOOLS_SKIP_CHECK": "1"},
+        )
+
+    # The stages must come from the same Limine build as limine-bios.sys on the ESP.
+    if has_bios_boot:
+        limine = os.path.join(args.root, "usr/bin/limine")
+        subprocess.run([limine, "bios-install", f"/dev/{disk}"], check=True)
+
+    os.sync()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Update the boot files of a Managarm installation")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    esp_parser = subparsers.add_parser(
-        "esp-contents", help="Write the files of the EFI system partition"
-    )
-    esp_parser.add_argument(
+    root_parser = argparse.ArgumentParser(add_help=False)
+    root_parser.add_argument(
         "--root", default="/", help="Root of the installation (default: /)"
     )
-    esp_parser.add_argument(
+    root_parser.add_argument(
         "--arch",
         choices=ARCHES,
         default=platform.machine(),
         help="Target architecture (default: uname -m)",
+    )
+
+    esp_parser = subparsers.add_parser(
+        "esp-contents", parents=[root_parser], help="Write the generated ESP files to a directory"
     )
     esp_parser.add_argument(
         "--esp-dir", required=True, help="Directory that the ESP files are written to"
     )
     esp_parser.set_defaults(func=cmd_esp_contents)
 
+    update_esp_parser = subparsers.add_parser(
+        "update-esp", parents=[root_parser],
+        help="Regenerate the boot files, write them to the ESP and install the Limine BIOS stages",
+    )
+    update_esp_parser.set_defaults(func=cmd_update_esp)
+
     args = parser.parse_args()
 
     # argparse does not check the default against the choices.
-    if args.command == "esp-contents" and args.arch not in ARCHES:
+    if args.arch not in ARCHES:
         parser.error(f"unsupported architecture {args.arch!r}, pass --arch")
 
     try:
         args.func(args)
     except ConfigError as e:
         print(f"update-boot: {e}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"update-boot: {' '.join(e.cmd)} failed with status {e.returncode}", file=sys.stderr)
         sys.exit(1)
 
 
