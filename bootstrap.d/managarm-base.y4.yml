@@ -75,14 +75,16 @@ packages:
     source:
       subdir: meta-sources
       version: '1.0'
-    revision: 2
+    revision: 3
     configure: []
     build:
       # Laid out as in extrafiles/managarm-scripts, so that the scripts find their data files next to themselves.
       - args: ['install', '-Dm755', '@SOURCE_ROOT@/extrafiles/managarm-scripts/update-boot.py', '@THIS_COLLECT_DIR@/usr/managarm/lib/managarm-scripts/update-boot.py']
       - args: ['install', '-Dm755', '@SOURCE_ROOT@/extrafiles/managarm-scripts/provision-sysroot.py', '@THIS_COLLECT_DIR@/usr/managarm/lib/managarm-scripts/provision-sysroot.py']
+      - args: ['install', '-Dm755', '@SOURCE_ROOT@/extrafiles/managarm-scripts/managarm-install.py', '@THIS_COLLECT_DIR@/usr/managarm/lib/managarm-scripts/managarm-install.py']
       - args: ['install', '-Dm644', '@SOURCE_ROOT@/extrafiles/managarm-scripts/xbps-keys/5d:d2:5b:a6:50:95:c7:b9:a4:10:e4:63:39:d0:b8:c5.plist', '@THIS_COLLECT_DIR@/usr/managarm/lib/managarm-scripts/xbps-keys/5d:d2:5b:a6:50:95:c7:b9:a4:10:e4:63:39:d0:b8:c5.plist']
       # update-image.py and the provision-sysroot task run these from the sysroot, so they live at the same paths on the host and the target.
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/usr/managarm/bin']
       - args: ['ln', '-svf', '../lib/managarm-scripts/update-boot.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/update-boot.py']
       - args: ['ln', '-svf', '../lib/managarm-scripts/provision-sysroot.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/provision-sysroot.py']
+      - args: ['ln', '-svf', '../lib/managarm-scripts/managarm-install.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/managarm-install.py']

@@ -130,7 +130,7 @@ jobs:
                   fi
             - name: Create sysroot
               run: |
-                  src/scripts/build-image.py --arch ${{ matrix.arch }} --xbps-${{ matrix.image-type }} sysroot
+                  src/extrafiles/managarm-scripts/managarm-install.py sysroot --arch ${{ matrix.arch }} --xbps-${{ matrix.image-type }} system-root
             - name: Generate initrd
               run: |
                   system-root/usr/managarm/bin/gen-initrd.py --triple ${{ matrix.triple }} --sysroot=system-root

@@ -5,12 +5,27 @@
 
 import argparse
 import contextlib
+import json
 import os
 import platform
+import shutil
+import subprocess
 import sys
+import tempfile
 import tomllib
 
 ARCHES = ["x86_64", "aarch64", "riscv64"]
+BIOS_BOOT_TYPE = "21686148-6449-6E6F-744E-656564454649"
+EIR_FILES = {
+    "x86_64": ["eir-limine", "eir-mb2", "eir-uefi"],
+    "aarch64": ["eir-limine", "eir-linux.bin", "eir-uefi"],
+    "riscv64": ["eir-limine", "eir-linux.bin", "eir-uefi"],
+}
+EFI_LOADERS = {
+    "x86_64": "BOOTX64.EFI",
+    "aarch64": "BOOTAA64.EFI",
+    "riscv64": "BOOTRISCV64.EFI",
+}
 
 
 class ConfigError(Exception):
@@ -150,21 +165,26 @@ def name_of_protocol(protocol):
     }[protocol]
 
 
-def make_default_entries(writer, *, protocol):
-    writer.write_entry(
-        f"Weston (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-    )
-    writer.write_entry(
-        f"kmscon (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-        extra_cmdline="systemd.unit=kmscon.target",
-    )
-    writer.write_entry(
-        f"SDDM (via {name_of_protocol(protocol)})",
-        protocol=protocol,
-        extra_cmdline="systemd.unit=sddm.target",
-    )
+# The boot targets that the installation provides, judged by their unit files.
+def installed_targets(root):
+    unit_dir = os.path.join(root, "usr/lib/systemd/system")
+    targets = {target for target in ["kmscon", "sddm"] if os.path.exists(os.path.join(unit_dir, f"{target}.target"))}
+    if "kmscon" not in targets:
+        raise ConfigError(f"{root}: kmscon.target does not exist, the kmscon package is required")
+    return targets
+
+
+def make_default_entries(writer, *, protocol, targets):
+    entries = []
+    if "sddm" in targets:
+        entries.append(("SDDM", "systemd.unit=sddm.target"))
+    entries.append(("kmscon", "systemd.unit=kmscon.target"))
+    for title, extra_cmdline in entries:
+        writer.write_entry(
+            f"{title} (via {name_of_protocol(protocol)})",
+            protocol=protocol,
+            extra_cmdline=extra_cmdline,
+        )
 
 
 def make_extra_entries(writer, *, protocol):
@@ -175,7 +195,7 @@ def make_extra_entries(writer, *, protocol):
     )
 
 
-def write_live_menu(writer, *, arch):
+def write_live_menu(writer, *, arch, targets):
     writer.write_header()
 
     limine_available = arch in {"x86_64", "riscv64"}
@@ -193,29 +213,29 @@ def write_live_menu(writer, *, arch):
         default_protocol = "efi"
 
     with writer.submenu("+Managarm: default options"):
-        make_default_entries(writer, protocol=default_protocol)
+        make_default_entries(writer, protocol=default_protocol, targets=targets)
 
     with writer.submenu("Managarm: extra options"):
         make_extra_entries(writer, protocol=default_protocol)
 
     if default_protocol != "efi":
         with writer.submenu("Managarm: UEFI chainload"):
-            make_default_entries(writer, protocol="efi")
+            make_default_entries(writer, protocol="efi", targets=targets)
 
     if limine_available and default_protocol != "limine":
         with writer.submenu("Managarm: Limine protocol"):
-            make_default_entries(writer, protocol="limine")
+            make_default_entries(writer, protocol="limine", targets=targets)
 
     if linux_available:
         with writer.submenu("Managarm: Linux protocol"):
-            make_default_entries(writer, protocol="linux")
+            make_default_entries(writer, protocol="linux", targets=targets)
 
     if mb2_available:
         with writer.submenu("Managarm: Multiboot2 protocol"):
-            make_default_entries(writer, protocol="multiboot2")
+            make_default_entries(writer, protocol="multiboot2", targets=targets)
 
 
-def write_limine_conf(path, config, *, arch):
+def write_limine_conf(path, config, *, arch, targets):
     # eir detects e9 under QEMU on its own, so x86 needs no bochs.
     base_cmdline = [
         "serial" if arch != "x86_64" else None,
@@ -223,45 +243,118 @@ def write_limine_conf(path, config, *, arch):
     ]
     with open(path, "w") as f:
         writer = LimineWriter(f, base_cmdline=base_cmdline, user_cmdline=config.cmdline)
-        write_live_menu(writer, arch=arch)
+        write_live_menu(writer, arch=arch, targets=targets)
 
 
 def cmd_esp_contents(args):
     config = Config.load(args.root)
-    write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch)
+    targets = installed_targets(args.root)
+    write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch, targets=targets)
+
+
+# Partition nodes are numbered from zero, e.g. sda0 or nvme0n1p0.
+def part_name(disk, idx):
+    return f"{disk}p{idx}" if disk[-1].isdigit() else f"{disk}{idx}"
+
+
+# Returns the ESP's disk and partition, and whether the disk has a BIOS boot partition.
+def find_esp(partuuid):
+    for disk in sorted(os.listdir("/sys/block")):
+        # /sys/block also lists partitions; most fail here, and FAT passes as an empty MBR.
+        res = subprocess.run(["sfdisk", "-J", f"/dev/{disk}"], capture_output=True, text=True)
+        if res.returncode:
+            continue
+        parts = json.loads(res.stdout)["partitiontable"].get("partitions", [])
+        for idx, part in enumerate(parts):
+            if part.get("uuid", "").lower() == partuuid.lower():
+                return disk, part_name(disk, idx), any(p["type"].upper() == BIOS_BOOT_TYPE for p in parts)
+    raise ConfigError(f"no disk has a partition with the PARTUUID {partuuid}")
+
+
+def cmd_update_esp(args):
+    config = Config.load(args.root)
+    if not config.esp_partuuid:
+        raise ConfigError(f"{args.root}: etc/managarm/partitions.toml does not set esp.partuuid")
+    disk, esp, has_bios_boot = find_esp(config.esp_partuuid)
+
+    bin_dir = os.path.join(args.root, "usr/managarm/bin")
+    limine_dir = os.path.join(args.root, "usr/share/limine")
+
+    with tempfile.TemporaryDirectory() as tree:
+        os.makedirs(os.path.join(tree, "EFI/BOOT"))
+        os.makedirs(os.path.join(tree, "managarm"))
+
+        subprocess.run(
+            [sys.executable, os.path.join(bin_dir, "gen-initrd.py"), "--triple", f"{args.arch}-managarm",
+             "--sysroot", args.root, "-o", os.path.join(tree, "managarm/initrd.cpio")],
+            check=True,
+        )
+        for eir in EIR_FILES[args.arch]:
+            shutil.copy(os.path.join(bin_dir, eir), os.path.join(tree, "managarm"))
+        shutil.copy(os.path.join(limine_dir, EFI_LOADERS[args.arch]), os.path.join(tree, "EFI/BOOT"))
+        if has_bios_boot:
+            shutil.copy(os.path.join(limine_dir, "limine-bios.sys"), tree)
+        targets = installed_targets(args.root)
+        write_limine_conf(os.path.join(tree, "limine.conf"), config, arch=args.arch, targets=targets)
+
+        # -s merges into directories that exist already, and -o overwrites existing files.
+        sources = [os.path.join(tree, f) for f in os.listdir(tree)]
+        subprocess.run(
+            ["mcopy", "-s", "-o", "-i", f"/dev/{esp}", *sources, "::/"],
+            check=True,
+            env={**os.environ, "MTOOLS_SKIP_CHECK": "1"},
+        )
+
+    # The stages must come from the same Limine build as limine-bios.sys on the ESP.
+    if has_bios_boot:
+        limine = os.path.join(args.root, "usr/bin/limine")
+        subprocess.run([limine, "bios-install", f"/dev/{disk}"], check=True)
+
+    os.sync()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Update the boot files of a Managarm installation")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    esp_parser = subparsers.add_parser(
-        "esp-contents", help="Write the files of the EFI system partition"
-    )
-    esp_parser.add_argument(
+    root_parser = argparse.ArgumentParser(add_help=False)
+    root_parser.add_argument(
         "--root", default="/", help="Root of the installation (default: /)"
     )
-    esp_parser.add_argument(
+    root_parser.add_argument(
         "--arch",
         choices=ARCHES,
         default=platform.machine(),
         help="Target architecture (default: uname -m)",
+    )
+
+    esp_parser = subparsers.add_parser(
+        "esp-contents", parents=[root_parser], help="Write the generated ESP files to a directory"
     )
     esp_parser.add_argument(
         "--esp-dir", required=True, help="Directory that the ESP files are written to"
     )
     esp_parser.set_defaults(func=cmd_esp_contents)
 
+    update_esp_parser = subparsers.add_parser(
+        "update-esp", parents=[root_parser],
+        help="Regenerate the boot files, write them to the ESP and install the Limine BIOS stages",
+    )
+    update_esp_parser.set_defaults(func=cmd_update_esp)
+
     args = parser.parse_args()
 
     # argparse does not check the default against the choices.
-    if args.command == "esp-contents" and args.arch not in ARCHES:
+    if args.arch not in ARCHES:
         parser.error(f"unsupported architecture {args.arch!r}, pass --arch")
 
     try:
         args.func(args)
     except ConfigError as e:
         print(f"update-boot: {e}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"update-boot: {' '.join(e.cmd)} failed with status {e.returncode}", file=sys.stderr)
         sys.exit(1)
 
 
