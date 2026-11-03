@@ -15,6 +15,12 @@ import sys
 import tempfile
 import tomllib
 
+# Revision of the CLI interface, bumped when we change the CLI interface that other scripts rely on.
+# Prior changes:
+# Revision 2: esp-contents writes all of the ESP and its stamp.
+# The exact format of the CLI_REVISION line MUST be preserved as it is parsed by other scripts with a regexp.
+CLI_REVISION = 2
+
 ARCHES = ["x86_64", "aarch64", "riscv64"]
 BIOS_BOOT_TYPE = "21686148-6449-6E6F-744E-656564454649"
 EIR_FILES = {
@@ -252,8 +258,8 @@ def write_limine_conf(path, config, *, arch, targets):
 
 def cmd_esp_contents(args):
     config = Config.load(args.root)
-    targets = installed_targets(args.root)
-    write_limine_conf(os.path.join(args.esp_dir, "limine.conf"), config, arch=args.arch, targets=targets)
+    files, external = make_esp_tree(args.root, args.arch, config, args.esp_dir, has_bios_boot=args.bios_boot)
+    write_stamp(os.path.join(args.esp_dir, STAMP_PATH), files, external)
 
 
 # Partition nodes are numbered from zero, e.g. sda0 or nvme0n1p0.
@@ -290,6 +296,11 @@ def hash_tree(tree):
             path = os.path.join(dirpath, name)
             files[os.path.relpath(path, tree)] = hash_file(path)
     return files
+
+
+def write_stamp(path, files, external):
+    with open(path, "w") as f:
+        json.dump({"version": STAMP_VERSION, "files": files, "external": external}, f, indent=4, sort_keys=True)
 
 
 # Returns None if the stamp is missing or unusable, which makes the caller rewrite the ESP.
@@ -382,8 +393,7 @@ def cmd_update_esp(args):
         # The stamp commits the update, so everything else must be on the disk before it.
         os.sync()
         stamp_path = os.path.join(tree, "update-boot.json")
-        with open(stamp_path, "w") as f:
-            json.dump({"version": STAMP_VERSION, "files": files, "external": external}, f, indent=4, sort_keys=True)
+        write_stamp(stamp_path, files, external)
         subprocess.run(["mcopy", "-o", "-i", f"/dev/{esp}", stamp_path, f"::{STAMP_PATH}"], check=True, env=mtools_env)
 
     os.sync()
@@ -405,10 +415,15 @@ def main():
     )
 
     esp_parser = subparsers.add_parser(
-        "esp-contents", parents=[root_parser], help="Write the generated ESP files to a directory"
+        "esp-contents", parents=[root_parser],
+        help="Write the generated ESP files and their stamp to a directory, except for limine-bios.sys"
     )
     esp_parser.add_argument(
-        "--esp-dir", required=True, help="Directory that the ESP files are written to"
+        "--esp-dir", required=True, help="Empty directory that the ESP files are written to"
+    )
+    esp_parser.add_argument(
+        "--bios-boot", action="store_true",
+        help="The disk has a BIOS boot partition, whose Limine stages and limine-bios.sys the caller installs",
     )
     esp_parser.set_defaults(func=cmd_esp_contents)
 
