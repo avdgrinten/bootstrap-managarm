@@ -441,6 +441,7 @@ def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
 # keep the ESP layout of their time until the stable repository catches up.
 # Without update-boot.py in the sysroot, the one from extrafiles/ generates all of the ESP into esp_dir,
 # and only limine.conf is taken from it.
+# TODO: Remove this workaround when stable caught up.
 def plan_legacy_esp(arch, sysroot, scriptdir, esp_dir):
     yield FsAction.INSTALL, "initrd.cpio", "boot/managarm", dict(ignore_sysroot=True)
 

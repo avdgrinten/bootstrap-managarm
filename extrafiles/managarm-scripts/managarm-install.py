@@ -33,6 +33,7 @@ ROOT_TYPE = "64212B3B-56A1-4DFB-971E-BC8CD027996A"
 # The root takes the rest of the disk.
 PART_SIZES = {BIOS_BOOT_TYPE: "16MiB", ESP_TYPE: "256MiB", ROOT_TYPE: "+"}
 # What every installation gets, regardless of --package; base brings the kernel, the system, kmscon and these scripts.
+# TODO: Remove limine, mtools and python once base includes them also in the stable repository.
 BOOT_PACKAGES = ["base", "limine", "mtools", "python"]
 DISK_TOOLS = {
     "mount": "util-linux",
@@ -88,6 +89,7 @@ def populate_root(root, arch, channel, packages, account_args, repositories=()):
 
 
 def cmd_sysroot(args):
+    # TODO: Remove limine once base includes it also in the stable repository.
     populate_root(args.root, args.arch, args.xbps_channel, ["base", "limine"], LIVE_ACCOUNTS)
 
 
