@@ -5,6 +5,7 @@
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import platform
@@ -26,6 +27,9 @@ EFI_LOADERS = {
     "aarch64": "BOOTAA64.EFI",
     "riscv64": "BOOTRISCV64.EFI",
 }
+STAMP_PATH = "managarm/update-boot.json"
+# Bump when the ESP has to be rewritten even though the generated files are unchanged.
+STAMP_VERSION = 1
 
 
 class ConfigError(Exception):
@@ -271,6 +275,40 @@ def find_esp(partuuid):
     raise ConfigError(f"no disk has a partition with the PARTUUID {partuuid}")
 
 
+def hash_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def hash_tree(tree):
+    files = {}
+    for dirpath, _, names in os.walk(tree):
+        for name in names:
+            path = os.path.join(dirpath, name)
+            files[os.path.relpath(path, tree)] = hash_file(path)
+    return files
+
+
+# Returns None if the stamp is missing or unusable, which makes the caller rewrite the ESP.
+def read_stamp(esp, mtools_env):
+    res = subprocess.run(["mtype", "-i", f"/dev/{esp}", f"::{STAMP_PATH}"], capture_output=True, env=mtools_env)
+    if res.returncode:
+        return None
+    # This also catches a stamp that is not valid UTF-8.
+    try:
+        stamp = json.loads(res.stdout)
+    except ValueError:
+        return None
+    if not isinstance(stamp, dict) or stamp.get("version") != STAMP_VERSION:
+        return None
+    if not isinstance(stamp.get("files"), dict) or not isinstance(stamp.get("external"), dict):
+        return None
+    return stamp
+
+
 def cmd_update_esp(args):
     config = Config.load(args.root)
     if not config.esp_partuuid:
@@ -279,6 +317,7 @@ def cmd_update_esp(args):
 
     bin_dir = os.path.join(args.root, "usr/managarm/bin")
     limine_dir = os.path.join(args.root, "usr/share/limine")
+    mtools_env = {**os.environ, "MTOOLS_SKIP_CHECK": "1"}
 
     with tempfile.TemporaryDirectory() as tree:
         os.makedirs(os.path.join(tree, "EFI/BOOT"))
@@ -292,23 +331,53 @@ def cmd_update_esp(args):
         for eir in EIR_FILES[args.arch]:
             shutil.copy(os.path.join(bin_dir, eir), os.path.join(tree, "managarm"))
         shutil.copy(os.path.join(limine_dir, EFI_LOADERS[args.arch]), os.path.join(tree, "EFI/BOOT"))
-        if has_bios_boot:
-            shutil.copy(os.path.join(limine_dir, "limine-bios.sys"), tree)
         targets = installed_targets(args.root)
         write_limine_conf(os.path.join(tree, "limine.conf"), config, arch=args.arch, targets=targets)
 
-        # -s merges into directories that exist already, and -o overwrites existing files.
-        sources = [os.path.join(tree, f) for f in os.listdir(tree)]
-        subprocess.run(
-            ["mcopy", "-s", "-o", "-i", f"/dev/{esp}", *sources, "::/"],
-            check=True,
-            env={**os.environ, "MTOOLS_SKIP_CHECK": "1"},
-        )
+        files = hash_tree(tree)
+        # limine-bios.sys has to match the stages on the disk, so it is tracked by the root's copy that was
+        # last paired with them, not by its content on the ESP.
+        external = {}
+        if has_bios_boot:
+            external["limine-bios.sys"] = hash_file(os.path.join(limine_dir, "limine-bios.sys"))
 
-    # The stages must come from the same Limine build as limine-bios.sys on the ESP.
-    if has_bios_boot:
-        limine = os.path.join(args.root, "usr/bin/limine")
-        subprocess.run([limine, "bios-install", f"/dev/{disk}"], check=True)
+        old = read_stamp(esp, mtools_env)
+        if not args.force and old is not None and old["files"] == files and old["external"] == external:
+            print("update-boot: The boot files are up to date")
+            return
+
+        if old is not None:
+            # Without a stamp, the next run redoes all of an update that this run does not finish.
+            subprocess.run(["mdel", "-i", f"/dev/{esp}", f"::{STAMP_PATH}"], check=True, env=mtools_env)
+            os.sync()
+
+        if old is not None and not args.force:
+            for path, digest in files.items():
+                if old["files"].get(path) == digest:
+                    os.unlink(os.path.join(tree, path))
+            # Only files that an earlier run wrote are removed; the ESP may be shared. A file that is gone
+            # already does not fail the run.
+            for path in old["files"].keys() - files.keys():
+                subprocess.run(["mdel", "-i", f"/dev/{esp}", f"::{path}"], env=mtools_env)
+
+        # -s merges into directories that exist already and creates the others, and -o overwrites existing files.
+        sources = [os.path.join(tree, f) for f in os.listdir(tree)]
+        subprocess.run(["mcopy", "-s", "-o", "-i", f"/dev/{esp}", *sources, "::/"], check=True, env=mtools_env)
+
+        # The stages must come from the same Limine build as limine-bios.sys on the ESP.
+        paired_bios_sys = None if old is None or args.force else old["external"].get("limine-bios.sys")
+        if has_bios_boot and paired_bios_sys != external["limine-bios.sys"]:
+            subprocess.run(["mcopy", "-o", "-i", f"/dev/{esp}", os.path.join(limine_dir, "limine-bios.sys"), "::/"],
+                           check=True, env=mtools_env)
+            limine = os.path.join(args.root, "usr/bin/limine")
+            subprocess.run([limine, "bios-install", f"/dev/{disk}"], check=True)
+
+        # The stamp commits the update, so everything else must be on the disk before it.
+        os.sync()
+        stamp_path = os.path.join(tree, "update-boot.json")
+        with open(stamp_path, "w") as f:
+            json.dump({"version": STAMP_VERSION, "files": files, "external": external}, f, indent=4, sort_keys=True)
+        subprocess.run(["mcopy", "-o", "-i", f"/dev/{esp}", stamp_path, f"::{STAMP_PATH}"], check=True, env=mtools_env)
 
     os.sync()
 
@@ -339,6 +408,9 @@ def main():
     update_esp_parser = subparsers.add_parser(
         "update-esp", parents=[root_parser],
         help="Regenerate the boot files, write them to the ESP and install the Limine BIOS stages",
+    )
+    update_esp_parser.add_argument(
+        "--force", action="store_true", help="Rewrite the ESP even if its stamp is up to date"
     )
     update_esp_parser.set_defaults(func=cmd_update_esp)
 
