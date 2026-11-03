@@ -309,37 +309,44 @@ def read_stamp(esp, mtools_env):
     return stamp
 
 
+def make_esp_tree(root, arch, config, tree, *, has_bios_boot):
+    bin_dir = os.path.join(root, "usr/managarm/bin")
+    limine_dir = os.path.join(root, "usr/share/limine")
+
+    os.makedirs(os.path.join(tree, "EFI/BOOT"))
+    os.makedirs(os.path.join(tree, "managarm"))
+
+    subprocess.run(
+        [sys.executable, os.path.join(bin_dir, "gen-initrd.py"), "--triple", f"{arch}-managarm",
+         "--sysroot", root, "-o", os.path.join(tree, "managarm/initrd.cpio")],
+        check=True,
+    )
+    for eir in EIR_FILES[arch]:
+        shutil.copy(os.path.join(bin_dir, eir), os.path.join(tree, "managarm"))
+    shutil.copy(os.path.join(limine_dir, EFI_LOADERS[arch]), os.path.join(tree, "EFI/BOOT"))
+    targets = installed_targets(root)
+    write_limine_conf(os.path.join(tree, "limine.conf"), config, arch=arch, targets=targets)
+
+    files = hash_tree(tree)
+    # limine-bios.sys has to match the stages on the disk, so it is tracked by the root's copy that was
+    # last paired with them, not by its content on the ESP.
+    external = {}
+    if has_bios_boot:
+        external["limine-bios.sys"] = hash_file(os.path.join(limine_dir, "limine-bios.sys"))
+    return files, external
+
+
 def cmd_update_esp(args):
     config = Config.load(args.root)
     if not config.esp_partuuid:
         raise ConfigError(f"{args.root}: etc/managarm/partitions.toml does not set esp.partuuid")
     disk, esp, has_bios_boot = find_esp(config.esp_partuuid)
 
-    bin_dir = os.path.join(args.root, "usr/managarm/bin")
     limine_dir = os.path.join(args.root, "usr/share/limine")
     mtools_env = {**os.environ, "MTOOLS_SKIP_CHECK": "1"}
 
     with tempfile.TemporaryDirectory() as tree:
-        os.makedirs(os.path.join(tree, "EFI/BOOT"))
-        os.makedirs(os.path.join(tree, "managarm"))
-
-        subprocess.run(
-            [sys.executable, os.path.join(bin_dir, "gen-initrd.py"), "--triple", f"{args.arch}-managarm",
-             "--sysroot", args.root, "-o", os.path.join(tree, "managarm/initrd.cpio")],
-            check=True,
-        )
-        for eir in EIR_FILES[args.arch]:
-            shutil.copy(os.path.join(bin_dir, eir), os.path.join(tree, "managarm"))
-        shutil.copy(os.path.join(limine_dir, EFI_LOADERS[args.arch]), os.path.join(tree, "EFI/BOOT"))
-        targets = installed_targets(args.root)
-        write_limine_conf(os.path.join(tree, "limine.conf"), config, arch=args.arch, targets=targets)
-
-        files = hash_tree(tree)
-        # limine-bios.sys has to match the stages on the disk, so it is tracked by the root's copy that was
-        # last paired with them, not by its content on the ESP.
-        external = {}
-        if has_bios_boot:
-            external["limine-bios.sys"] = hash_file(os.path.join(limine_dir, "limine-bios.sys"))
+        files, external = make_esp_tree(args.root, args.arch, config, tree, has_bios_boot=has_bios_boot)
 
         old = read_stamp(esp, mtools_env)
         if not args.force and old is not None and old["files"] == files and old["external"] == external:
