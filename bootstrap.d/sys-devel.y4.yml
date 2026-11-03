@@ -415,7 +415,7 @@ packages:
       - mpfr
       - mpc
       - zlib
-    revision: 11
+    revision: 12
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -451,6 +451,10 @@ packages:
         include: ['/usr/lib*/libgcc_s.so*', '/usr/lib/gcc/*-managarm/14.2.0/libgcc*']
       - name: libstdc++
         include: ['/usr/include/**', '/usr/lib*/libstdc++*', '/usr/lib*/libsupc++.a', '/usr/share/gcc-14.2.0/**']
+    scripts:
+      post_install:
+        # libgcc_s.so.1 and libstdc++.so.6 are part of the initrd; libgcc and libstdc++ inherit this script.
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: binutils
     architecture: '@OPTION:arch@'

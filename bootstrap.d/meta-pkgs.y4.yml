@@ -39,6 +39,7 @@ packages:
       - libgcc
       - libstdc++
       - libxcrypt
+      - limine
       - locale-data
       - man-db
       - man-pages-posix
@@ -47,9 +48,11 @@ packages:
       - managarm-scripts
       - managarm-system
       - managarm-system-rs
+      - mtools
       - nano
       - pciutils
       - procps
+      - python
       - sed
       - shadow
       - sudo
@@ -64,7 +67,7 @@ packages:
       - xbps
       - xkeyboard-config
       - xz-utils
-    revision: 16
+    revision: 17
     configure: []
     build: []
 

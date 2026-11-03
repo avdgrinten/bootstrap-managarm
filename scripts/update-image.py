@@ -5,6 +5,7 @@ import errno
 import functools
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -22,6 +23,9 @@ elevation_method = None
 verbose = False
 MANAGARM_ROOT_PART_TYPE = "64212B3B-56A1-4DFB-971E-BC8CD027996A"
 EFI_SYSTEM_PART_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+BIOS_BOOT_PART_TYPE = "21686148-6449-6E6F-744E-656564454649"
+# Written by update-boot.py esp-contents.
+ESP_STAMP_PATH = "managarm/update-boot.json"
 # container.uid and container.gid of bootstrap-site.yml.
 CONTAINER_BUILD_ID = 1000
 global_mount_info = None
@@ -384,35 +388,64 @@ class MountAction:
 FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS INSTALL CP RSYNC")
 
 
-def generate_plan(arch, sysroot, scriptdir):
-    tmpdir = tempfile.TemporaryDirectory()
-    tmpdirs.append(tmpdir) # Prevent GC until script terminates.
+# update-boot.py declares the revision of its command line interface; older versions do not.
+def read_cli_revision(update_boot):
+    with open(update_boot) as f:
+        match = re.search(r"^CLI_REVISION[ \t]*=[ \t]*(.*)$", f.read(), re.MULTILINE)
+    if not match:
+        return 1
+    value = match.group(1).rstrip()
+    if not re.fullmatch(r"[0-9]+", value):
+        raise RuntimeError(f"{update_boot}: CLI_REVISION is assigned {value!r}, not an integer")
+    return int(value)
 
-    for x in [
-        "root",
-        "usr/bin",
-        "usr/lib",
-        "var",
-        "dev",
-        "proc",
-        "run",
-        "sys",
-        "tmp",
-        "home",
-        "boot",
-        "boot/EFI",
-        "boot/EFI/BOOT",
-        "boot/grub",
-        "boot/managarm",
-        "opt",
-    ]:
-        yield FsAction.CREATE_DIR, x
 
-    yield FsAction.ENSURE_LINKS
+# update-boot.py esp-contents (CLI revision 2) generates all of the ESP, including its stamp.
+def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
+    esp_contents_args = [
+        sys.executable,
+        update_boot,
+        "esp-contents",
+        "--root",
+        sysroot,
+        "--arch",
+        arch.split('-')[0],
+        "--esp-dir",
+        esp_dir,
+    ]
+    if bios_boot:
+        esp_contents_args.append("--bios-boot")
+    subprocess.run(esp_contents_args, check=True)
 
+    stamp = os.path.join(esp_dir, ESP_STAMP_PATH)
+    for dirpath, _, filenames in os.walk(esp_dir):
+        dest = os.path.normpath(os.path.join("boot", os.path.relpath(dirpath, esp_dir))) + "/"
+        for filename in sorted(filenames):
+            if os.path.join(dirpath, filename) != stamp:
+                yield FsAction.CP, os.path.join(dirpath, filename), dest
+
+    if arch == "x86_64-managarm":
+        yield FsAction.CP, os.path.join(scriptdir, "grub.cfg"), "boot/grub/"
+
+        yield (
+            FsAction.CP,
+            "tools/host-limine/share/limine/limine-bios.sys",
+            "boot/",
+        )
+
+    # The stamp claims that the ESP is complete, so it goes last.
+    yield FsAction.CP, stamp, os.path.dirname(os.path.join("boot", ESP_STAMP_PATH)) + "/"
+
+
+# Sysroots whose update-boot.py predates CLI revision 2, or that have none,
+# keep the ESP layout of their time until the stable repository catches up.
+# Without update-boot.py in the sysroot, the one from extrafiles/ generates all of the ESP into esp_dir,
+# and only limine.conf is taken from it.
+# TODO: Remove this workaround when stable caught up.
+def plan_legacy_esp(arch, sysroot, scriptdir, esp_dir):
     yield FsAction.INSTALL, "initrd.cpio", "boot/managarm", dict(ignore_sysroot=True)
 
-    limine_conf = os.path.join(tmpdir.name, "limine.conf")
+    limine_conf = os.path.join(esp_dir, "limine.conf")
     update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
     if not os.path.exists(update_boot):
         # Sysroots from repositories that predate managarm-scripts, e.g., CI's stable images.
@@ -428,7 +461,7 @@ def generate_plan(arch, sysroot, scriptdir):
             "--arch",
             arch.split('-')[0],
             "--esp-dir",
-            tmpdir.name,
+            esp_dir,
         ],
         check=True,
     )
@@ -474,6 +507,39 @@ def generate_plan(arch, sysroot, scriptdir):
         )
 
         yield FsAction.CP, limine_conf, "boot/"
+
+
+def generate_plan(arch, sysroot, scriptdir, bios_boot):
+    tmpdir = tempfile.TemporaryDirectory()
+    tmpdirs.append(tmpdir) # Prevent GC until script terminates.
+
+    for x in [
+        "root",
+        "usr/bin",
+        "usr/lib",
+        "var",
+        "dev",
+        "proc",
+        "run",
+        "sys",
+        "tmp",
+        "home",
+        "boot",
+        "boot/EFI",
+        "boot/EFI/BOOT",
+        "boot/grub",
+        "boot/managarm",
+        "opt",
+    ]:
+        yield FsAction.CREATE_DIR, x
+
+    yield FsAction.ENSURE_LINKS
+
+    update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
+    if os.path.exists(update_boot) and read_cli_revision(update_boot) >= 2:
+        yield from plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, tmpdir.name)
+    else:
+        yield from plan_legacy_esp(arch, sysroot, scriptdir, tmpdir.name)
 
     yield FsAction.RSYNC, "bin"
     yield FsAction.RSYNC, "lib"
@@ -646,8 +712,9 @@ class UpdateFsAction:
         def plan_ensure_links():
             ensure_sysroot_links(self.sysroot)
 
+        bios_boot = any(part.type.upper() == BIOS_BOOT_PART_TYPE for part in partitions)
         iterate_plan(
-            generate_plan(self.arch, self.sysroot, scriptdir),
+            generate_plan(self.arch, self.sysroot, scriptdir, bios_boot),
             {
                 FsAction.CREATE_DIR: plan_create_dir,
                 FsAction.ENSURE_LINKS: plan_ensure_links,
@@ -887,7 +954,12 @@ class RemakeImageAction:
 
         # start by correcting the sysroot slightly
         iterate_plan(
-            generate_plan(self.arch, self.sysroot, scriptdir),
+            generate_plan(
+                self.arch,
+                self.sysroot,
+                scriptdir,
+                any(parttype.upper() == BIOS_BOOT_PART_TYPE for _, _, parttype, _ in parts),
+            ),
             {
                 FsAction.CREATE_DIR: self._create_dir,
                 FsAction.ENSURE_LINKS: self._ensure_links,

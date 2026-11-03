@@ -75,7 +75,7 @@ packages:
     source:
       subdir: meta-sources
       version: '1.0'
-    revision: 3
+    revision: 4
     configure: []
     build:
       # Laid out as in extrafiles/managarm-scripts, so that the scripts find their data files next to themselves.
@@ -88,3 +88,6 @@ packages:
       - args: ['ln', '-svf', '../lib/managarm-scripts/update-boot.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/update-boot.py']
       - args: ['ln', '-svf', '../lib/managarm-scripts/provision-sysroot.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/provision-sysroot.py']
       - args: ['ln', '-svf', '../lib/managarm-scripts/managarm-install.py', '@THIS_COLLECT_DIR@/usr/managarm/bin/managarm-install.py']
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']

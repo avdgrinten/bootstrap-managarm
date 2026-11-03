@@ -276,7 +276,7 @@ packages:
       - bragi
       - frigg
       - libsmarter
-    revision: 1
+    revision: 2
     configure:
       - args: ['ln', '-sf', '@SYSROOT_DIR@/usr/src/libdrm-headers', '@THIS_SOURCE_DIR@/subprojects/']
       - args:
@@ -325,6 +325,10 @@ packages:
         - '-quiet'
         - '-fix'
         - '\.(h|c|cpp|hpp)$'
+    scripts:
+      post_install:
+        # ld.so, libc.so and libm.so are part of the initrd.
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: mlibc-docs
     stability_level: 'broken' # host-hdoc is broken

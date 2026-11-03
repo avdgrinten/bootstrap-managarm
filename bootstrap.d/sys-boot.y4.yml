@@ -51,6 +51,7 @@ packages:
       - host-llvm-toolchain
     pkgs_required:
       - mlibc
+    revision: 2
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -62,3 +63,6 @@ packages:
       - args: ['make', 'install']
         environ:
           DESTDIR: '@THIS_COLLECT_DIR@'
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
