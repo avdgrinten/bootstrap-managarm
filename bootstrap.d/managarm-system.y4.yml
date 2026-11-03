@@ -131,7 +131,7 @@ packages:
       - libsmarter
       - uacpi
       - mlibc-headers
-    revision: 2
+    revision: 3
     configure:
       - args: |
           sed -e 's|_BUILD_ROOT_|@BUILD_ROOT@|' @SOURCE_ROOT@/scripts/meson-kernel-@OPTION:arch-triple@.cross-file \
@@ -187,6 +187,9 @@ packages:
       args:
       - 'ninja'
       - 'clang-format-check'
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: managarm-kernel-uefi
     metadata:
@@ -220,7 +223,7 @@ packages:
       - freestnd-c-hdrs
       - freestnd-cxx-hdrs
       - uacpi
-    revision: 2
+    revision: 3
     configure:
       - args:
         - 'meson'
@@ -252,6 +255,9 @@ packages:
       - '-warnings-as-errors=*'
       - '-quiet'
       - '\.(h|c|cpp|hpp)$'
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: uhda
     metadata:
@@ -339,7 +345,7 @@ packages:
       - !managarm::arch_dep
         arch: [x86_64]
         item: nvidia-open
-    revision: 2
+    revision: 3
     configure:
       - args: |
           sed -e 's|_BUILD_ROOT_|@BUILD_ROOT@|' -e 's|_SYSROOT_DIR_|@SYSROOT_DIR@|' @SOURCE_ROOT@/scripts/meson-clang-@OPTION:arch-triple@.cross-file \
@@ -394,6 +400,9 @@ packages:
       - '-quiet'
       - '-fix'
       - '\.(h|c|cpp|hpp)$'
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: managarm-system-rs
     metadata:
@@ -423,7 +432,7 @@ packages:
     pkgs_required:
       - mlibc
       - uacpi
-    revision: 3
+    revision: 4
     configure:
       # Managarm does not have a committed lockfile.
       # Delete any re-existing one such that cargo-inject-patches.py generates a fresh lockfile.
@@ -504,6 +513,9 @@ packages:
         PKG_CONFIG: '@OPTION:arch-triple@-pkg-config'
         # Link the server binaries statically and don't touch SIGPIPE on startup
         RUSTFLAGS: "-C relocation-model=static -Z on-broken-pipe=inherit"
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: uacpi
     metadata:

@@ -886,7 +886,7 @@ packages:
       - system-gcc
     pkgs_required:
       - mlibc
-    revision: 11
+    revision: 12
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -900,3 +900,7 @@ packages:
           DESTDIR: '@THIS_COLLECT_DIR@'
         quiet: true
       - args: ['patchelf', '--set-soname', 'libz.so.1.2.12', '@THIS_COLLECT_DIR@/usr/lib/libz.so.1.2.12']
+    scripts:
+      post_install:
+        # libz.so.1 is part of the initrd.
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']

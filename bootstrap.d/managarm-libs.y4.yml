@@ -307,7 +307,7 @@ packages:
       - system-gcc
     pkgs_required:
       - mlibc
-    revision: 13
+    revision: 14
     configure:
       - args:
         - 'meson'
@@ -325,6 +325,9 @@ packages:
         environ:
           DESTDIR: '@THIS_COLLECT_DIR@'
         quiet: true
+    scripts:
+      post_install:
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   - name: libasync
     labels: [aarch64, riscv64]

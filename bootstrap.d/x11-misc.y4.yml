@@ -53,7 +53,7 @@ packages:
       - mlibc
       - qtbase6
       - qtdeclarative6
-    revision: 4
+    revision: 5
     configure:
       - args:
         - 'cmake'
@@ -91,6 +91,10 @@ packages:
     subpackages:
       - name: sddm-dbg
         include: ['/usr/lib/debug/**']
+    scripts:
+      post_install:
+        # update-boot.py only offers the SDDM entry in limine.conf if sddm.target is installed.
+        - args: ['/usr/managarm/bin/update-boot.py', 'update-esp']
 
   # TODO: why is this so old?
   - name: shared-mime-info
