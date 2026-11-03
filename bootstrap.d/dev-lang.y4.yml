@@ -389,7 +389,7 @@ packages:
           BUILD_BZIP2: '0'
 
   - name: python
-    labels: [aarch64]
+    labels: [aarch64, riscv64]
     architecture: '@OPTION:arch@'
     metadata:
       summary: An interpreted, interactive, object-oriented programming language
