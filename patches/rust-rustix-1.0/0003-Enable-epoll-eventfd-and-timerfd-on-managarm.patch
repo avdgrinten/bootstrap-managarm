@@ -1,0 +1,489 @@
+From 1480f93b720ac55e6bb3aa9d5423c8c826e11c49 Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Fri, 6 Nov 2026 09:58:21 +0100
+Subject: [PATCH 3/3] Enable epoll, eventfd and timerfd on managarm
+
+Assisted-by: Claude Code (Opus 5.5)
+---
+ src/backend/libc/conv.rs           |  3 ++-
+ src/backend/libc/event/mod.rs      |  2 +-
+ src/backend/libc/event/syscalls.rs | 38 +++++++++++++++++----------
+ src/backend/libc/event/types.rs    | 13 ++++++---
+ src/backend/libc/time/syscalls.rs  | 21 ++++++++++-----
+ src/backend/libc/time/types.rs     | 42 ++++++++++++++++++++----------
+ src/event/epoll.rs                 |  2 +-
+ src/event/mod.rs                   |  8 +++---
+ src/time/mod.rs                    |  6 +++--
+ 9 files changed, 89 insertions(+), 46 deletions(-)
+
+diff --git a/src/backend/libc/conv.rs b/src/backend/libc/conv.rs
+index c333f5c..750f5e8 100644
+--- a/src/backend/libc/conv.rs
++++ b/src/backend/libc/conv.rs
+@@ -87,7 +87,8 @@ pub(super) fn ret_c_int(raw: c::c_int) -> io::Result<c::c_int> {
+ #[cfg(any(
+     linux_kernel,
+     all(target_os = "illumos", feature = "event"),
+-    all(target_os = "redox", feature = "event")
++    all(target_os = "redox", feature = "event"),
++    all(target_os = "managarm", feature = "event")
+ ))]
+ #[inline]
+ pub(super) fn ret_u32(raw: c::c_int) -> io::Result<u32> {
+diff --git a/src/backend/libc/event/mod.rs b/src/backend/libc/event/mod.rs
+index ff826fc..4a2ec48 100644
+--- a/src/backend/libc/event/mod.rs
++++ b/src/backend/libc/event/mod.rs
+@@ -5,5 +5,5 @@ pub(crate) mod types;
+ #[cfg_attr(windows, path = "windows_syscalls.rs")]
+ pub(crate) mod syscalls;
+ 
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub mod epoll;
+diff --git a/src/backend/libc/event/syscalls.rs b/src/backend/libc/event/syscalls.rs
+index 2686382..9090e96 100644
+--- a/src/backend/libc/event/syscalls.rs
++++ b/src/backend/libc/event/syscalls.rs
+@@ -1,10 +1,10 @@
+ //! libc syscalls supporting `rustix::event`.
+ 
+ use crate::backend::c;
+-#[cfg(any(linux_kernel, solarish, target_os = "redox"))]
++#[cfg(any(linux_kernel, solarish, target_os = "redox", target_os = "managarm"))]
+ use crate::backend::conv::ret;
+ use crate::backend::conv::ret_c_int;
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ use crate::backend::conv::ret_u32;
+ #[cfg(bsd)]
+ use crate::event::kqueue::Event;
+@@ -14,14 +14,15 @@ use crate::event::port::Event;
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ use crate::event::EventfdFlags;
+ #[cfg(any(bsd, linux_kernel, target_os = "wasi"))]
+ use crate::event::FdSetElement;
+ use crate::event::{PollFd, Timespec};
+ use crate::io;
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ use crate::utils::as_ptr;
+ #[cfg(solarish)]
+ use core::mem::MaybeUninit;
+@@ -35,9 +36,16 @@ use core::mem::MaybeUninit;
+     target_os = "wasi"
+ ))]
+ use core::ptr::null;
+-#[cfg(any(bsd, linux_kernel, solarish, target_os = "redox", target_os = "wasi"))]
++#[cfg(any(
++    bsd,
++    linux_kernel,
++    solarish,
++    target_os = "redox",
++    target_os = "wasi",
++    target_os = "managarm"
++))]
+ use core::ptr::null_mut;
+-#[cfg(any(bsd, linux_kernel, solarish, target_os = "redox"))]
++#[cfg(any(bsd, linux_kernel, solarish, target_os = "redox", target_os = "managarm"))]
+ use {crate::backend::conv::borrowed_fd, crate::fd::BorrowedFd};
+ #[cfg(any(
+     bsd,
+@@ -46,7 +54,8 @@ use {crate::backend::conv::borrowed_fd, crate::fd::BorrowedFd};
+     target_os = "freebsd",
+     target_os = "illumos",
+     target_os = "espidf",
+-    target_os = "redox"
++    target_os = "redox",
++    target_os = "managarm"
+ ))]
+ use {crate::backend::conv::ret_owned_fd, crate::fd::OwnedFd};
+ 
+@@ -54,7 +63,8 @@ use {crate::backend::conv::ret_owned_fd, crate::fd::OwnedFd};
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ pub(crate) fn eventfd(initval: u32, flags: EventfdFlags) -> io::Result<OwnedFd> {
+     #[cfg(linux_kernel)]
+@@ -80,7 +90,7 @@ pub(crate) fn eventfd(initval: u32, flags: EventfdFlags) -> io::Result<OwnedFd>
+         ret_owned_fd(eventfd(initval, bitflags_bits!(flags)))
+     }
+ 
+-    #[cfg(any(target_os = "illumos", target_os = "espidf"))]
++    #[cfg(any(target_os = "illumos", target_os = "espidf", target_os = "managarm"))]
+     unsafe {
+         ret_owned_fd(c::eventfd(initval, bitflags_bits!(flags)))
+     }
+@@ -486,13 +496,13 @@ pub(crate) fn pause() {
+ }
+ 
+ #[inline]
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub(crate) fn epoll_create(flags: super::epoll::CreateFlags) -> io::Result<OwnedFd> {
+     unsafe { ret_owned_fd(c::epoll_create1(bitflags_bits!(flags))) }
+ }
+ 
+ #[inline]
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub(crate) fn epoll_add(
+     epoll: BorrowedFd<'_>,
+     source: BorrowedFd<'_>,
+@@ -513,7 +523,7 @@ pub(crate) fn epoll_add(
+ }
+ 
+ #[inline]
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub(crate) fn epoll_mod(
+     epoll: BorrowedFd<'_>,
+     source: BorrowedFd<'_>,
+@@ -531,7 +541,7 @@ pub(crate) fn epoll_mod(
+ }
+ 
+ #[inline]
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub(crate) fn epoll_del(epoll: BorrowedFd<'_>, source: BorrowedFd<'_>) -> io::Result<()> {
+     unsafe {
+         ret(c::epoll_ctl(
+@@ -544,7 +554,7 @@ pub(crate) fn epoll_del(epoll: BorrowedFd<'_>, source: BorrowedFd<'_>) -> io::Re
+ }
+ 
+ #[inline]
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub(crate) unsafe fn epoll_wait(
+     epoll: BorrowedFd<'_>,
+     events: (*mut crate::event::epoll::Event, usize),
+diff --git a/src/backend/libc/event/types.rs b/src/backend/libc/event/types.rs
+index a04d7e6..fe89ec9 100644
+--- a/src/backend/libc/event/types.rs
++++ b/src/backend/libc/event/types.rs
+@@ -1,10 +1,16 @@
+-#[cfg(any(linux_kernel, target_os = "freebsd", target_os = "illumos"))]
++#[cfg(any(
++    linux_kernel,
++    target_os = "freebsd",
++    target_os = "illumos",
++    target_os = "managarm"
++))]
+ use crate::backend::c;
+ #[cfg(any(
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ use bitflags::bitflags;
+ 
+@@ -12,7 +18,8 @@ use bitflags::bitflags;
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ bitflags! {
+     /// `EFD_*` flags for use with [`eventfd`].
+diff --git a/src/backend/libc/time/syscalls.rs b/src/backend/libc/time/syscalls.rs
+index 8c730ce..941ee3d 100644
+--- a/src/backend/libc/time/syscalls.rs
++++ b/src/backend/libc/time/syscalls.rs
+@@ -7,7 +7,8 @@ use crate::backend::conv::ret;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(any(all(target_env = "gnu", fix_y2038), not(fix_y2038)))]
+ use crate::backend::time::types::LibcItimerspec;
+@@ -32,7 +33,8 @@ use core::mem::MaybeUninit;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ use {
+     crate::backend::conv::{borrowed_fd, ret_owned_fd},
+@@ -315,7 +317,8 @@ fn clock_settime_old(id: ClockId, timespec: Timespec) -> io::Result<()> {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ pub(crate) fn timerfd_create(id: TimerfdClockId, flags: TimerfdFlags) -> io::Result<OwnedFd> {
+     unsafe { ret_owned_fd(c::timerfd_create(id as c::clockid_t, bitflags_bits!(flags))) }
+@@ -326,7 +329,8 @@ pub(crate) fn timerfd_create(id: TimerfdClockId, flags: TimerfdFlags) -> io::Res
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ pub(crate) fn timerfd_settime(
+     fd: BorrowedFd<'_>,
+@@ -374,7 +378,8 @@ pub(crate) fn timerfd_settime(
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ fn timerfd_settime_old(
+@@ -447,7 +452,8 @@ fn timerfd_settime_old(
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ pub(crate) fn timerfd_gettime(fd: BorrowedFd<'_>) -> io::Result<Itimerspec> {
+     // Old 32-bit version: libc has `timerfd_gettime` but it is not y2038 safe
+@@ -484,7 +490,8 @@ pub(crate) fn timerfd_gettime(fd: BorrowedFd<'_>) -> io::Result<Itimerspec> {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ fn timerfd_gettime_old(fd: BorrowedFd<'_>) -> io::Result<Itimerspec> {
+diff --git a/src/backend/libc/time/types.rs b/src/backend/libc/time/types.rs
+index 35173ab..bac05a7 100644
+--- a/src/backend/libc/time/types.rs
++++ b/src/backend/libc/time/types.rs
+@@ -3,7 +3,8 @@
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ use crate::backend::c;
+ #[cfg(any(
+@@ -11,7 +12,8 @@ use crate::backend::c;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ use crate::time::Itimerspec;
+ #[cfg(any(
+@@ -19,7 +21,8 @@ use crate::time::Itimerspec;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ use crate::timespec::LibcTimespec;
+@@ -28,7 +31,8 @@ use crate::timespec::LibcTimespec;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ use bitflags::bitflags;
+ 
+@@ -38,7 +42,8 @@ use bitflags::bitflags;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(not(fix_y2038))]
+ pub(crate) type LibcItimerspec = Itimerspec;
+@@ -50,7 +55,8 @@ pub(crate) type LibcItimerspec = Itimerspec;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ #[repr(C)]
+@@ -65,7 +71,8 @@ pub(crate) struct LibcItimerspec {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ impl From<LibcItimerspec> for Itimerspec {
+@@ -83,7 +90,8 @@ impl From<LibcItimerspec> for Itimerspec {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(fix_y2038)]
+ impl From<Itimerspec> for LibcItimerspec {
+@@ -101,7 +109,8 @@ impl From<Itimerspec> for LibcItimerspec {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(not(fix_y2038))]
+ pub(crate) fn as_libc_itimerspec_ptr(itimerspec: &Itimerspec) -> *const c::itimerspec {
+@@ -117,7 +126,8 @@ pub(crate) fn as_libc_itimerspec_ptr(itimerspec: &Itimerspec) -> *const c::itime
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[cfg(not(fix_y2038))]
+ pub(crate) fn as_libc_itimerspec_mut_ptr(
+@@ -135,7 +145,8 @@ pub(crate) fn as_libc_itimerspec_mut_ptr(
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ bitflags! {
+     /// `TFD_*` flags for use with [`timerfd_create`].
+@@ -162,7 +173,8 @@ bitflags! {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ bitflags! {
+     /// `TFD_TIMER_*` flags for use with [`timerfd_settime`].
+@@ -193,7 +205,8 @@ bitflags! {
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+ #[repr(u32)]
+@@ -256,7 +269,8 @@ mod tests {
+         target_os = "freebsd",
+         target_os = "fuchsia",
+         target_os = "illumos",
+-        target_os = "netbsd"
++        target_os = "netbsd",
++        target_os = "managarm"
+     ))]
+     #[test]
+     fn test_types() {
+diff --git a/src/event/epoll.rs b/src/event/epoll.rs
+index 2a747be..59dc9a7 100644
+--- a/src/event/epoll.rs
++++ b/src/event/epoll.rs
+@@ -223,7 +223,7 @@ pub fn wait<EpollFd: AsFd, Buf: Buffer<Event>>(
+ #[cfg_attr(
+     all(
+         libc,
+-        linux_kernel,
++        any(linux_kernel, target_os = "managarm"),
+         any(
+             all(
+                 target_arch = "x86",
+diff --git a/src/event/mod.rs b/src/event/mod.rs
+index 29dfc22..26fb0b1 100644
+--- a/src/event/mod.rs
++++ b/src/event/mod.rs
+@@ -1,12 +1,13 @@
+ //! Event operations.
+ 
+-#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox"))]
++#[cfg(any(linux_kernel, target_os = "illumos", target_os = "redox", target_os = "managarm"))]
+ pub mod epoll;
+ #[cfg(any(
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ mod eventfd;
+ #[cfg(bsd)]
+@@ -24,7 +25,8 @@ pub use crate::timespec::{Nsecs, Secs, Timespec};
+     linux_kernel,
+     target_os = "freebsd",
+     target_os = "illumos",
+-    target_os = "espidf"
++    target_os = "espidf",
++    target_os = "managarm"
+ ))]
+ pub use eventfd::{eventfd, EventfdFlags};
+ #[cfg(not(any(windows, target_os = "redox", target_os = "wasi")))]
+diff --git a/src/time/mod.rs b/src/time/mod.rs
+index 8aeec87..c8af794 100644
+--- a/src/time/mod.rs
++++ b/src/time/mod.rs
+@@ -6,7 +6,8 @@ mod clock;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ mod timerfd;
+ 
+@@ -18,6 +19,7 @@ pub use clock::*;
+     target_os = "freebsd",
+     target_os = "fuchsia",
+     target_os = "illumos",
+-    target_os = "netbsd"
++    target_os = "netbsd",
++    target_os = "managarm"
+ ))]
+ pub use timerfd::*;
+-- 
+2.47.3
+

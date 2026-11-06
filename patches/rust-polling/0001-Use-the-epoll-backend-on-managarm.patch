@@ -1,0 +1,43 @@
+From aa9fb695435586b48491adc673e640c3a0ba368e Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Fri, 6 Nov 2026 09:58:36 +0100
+Subject: [PATCH] Use the epoll backend on managarm
+
+Assisted-by: Claude Code (Opus 5.5)
+---
+ src/lib.rs | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib.rs b/src/lib.rs
+index f4e8c69..9ce8d1d 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -83,7 +83,8 @@ cfg_if! {
+     } else if #[cfg(any(
+         target_os = "linux",
+         target_os = "android",
+-        target_os = "redox"
++        target_os = "redox",
++        target_os = "managarm"
+     ))] {
+         mod epoll;
+         use epoll as sys;
+@@ -977,6 +978,7 @@ impl fmt::Debug for Events {
+         target_os = "linux",
+         target_os = "android",
+         target_os = "redox",
++        target_os = "managarm",
+         target_os = "illumos",
+         target_os = "solaris",
+         target_vendor = "apple",
+@@ -993,6 +995,7 @@ impl fmt::Debug for Events {
+         target_os = "linux",
+         target_os = "android",
+         target_os = "redox",
++        target_os = "managarm",
+         target_os = "illumos",
+         target_os = "solaris",
+         target_vendor = "apple",
+-- 
+2.47.3
+

@@ -117,8 +117,14 @@ sources:
   - name: rust-rustix-1.0
     subdir: 'ports'
     git: 'https://github.com/bytecodealliance/rustix.git'
-    tag: 'v1.0.5'
-    version: '1.0.5'
+    tag: 'v1.1.6'
+    version: '1.1.6'
+
+  - name: rust-polling
+    subdir: 'ports'
+    git: 'https://github.com/smol-rs/polling.git'
+    tag: 'v3.11.0'
+    version: '3.11.0'
 
   - name: rust-uzers
     subdir: 'ports'
@@ -263,6 +269,8 @@ sources:
       - name: rust-rustix-0.38
         recursive: true
       - name: rust-rustix-1.0
+        recursive: true
+      - name: rust-polling
         recursive: true
       - name: rust-uzers
         recursive: true

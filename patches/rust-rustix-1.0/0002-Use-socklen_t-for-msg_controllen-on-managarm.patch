@@ -1,0 +1,33 @@
+From 57c9127b8892a0e73e6d0c18da42412dac26a825 Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Fri, 6 Nov 2026 09:58:20 +0100
+Subject: [PATCH 2/3] Use socklen_t for msg_controllen on managarm
+
+Assisted-by: Claude Code (Opus 5.5)
+---
+ src/backend/libc/net/msghdr.rs | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/backend/libc/net/msghdr.rs b/src/backend/libc/net/msghdr.rs
+index f46ac7e..edaf394 100644
+--- a/src/backend/libc/net/msghdr.rs
++++ b/src/backend/libc/net/msghdr.rs
+@@ -58,6 +58,7 @@ fn msg_iov_len(len: usize) -> c::c_int {
+     target_os = "fuchsia",
+     target_os = "haiku",
+     target_os = "hurd",
++    target_os = "managarm",
+     target_os = "nto",
+ ))]
+ #[inline]
+@@ -78,6 +79,7 @@ fn msg_control_len(len: usize) -> c::socklen_t {
+     target_os = "fuchsia",
+     target_os = "haiku",
+     target_os = "hurd",
++    target_os = "managarm",
+     target_os = "nto",
+     target_os = "vita",
+     target_os = "wasi",
+-- 
+2.47.3
+

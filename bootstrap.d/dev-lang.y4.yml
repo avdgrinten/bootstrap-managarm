@@ -67,7 +67,7 @@ tools:
       - host-llvm-toolchain
       - host-python
       - host-libffi
-    revision: 3
+    revision: 4
     stages:
       - name: config
         compile:
@@ -179,7 +179,7 @@ tools:
       - rust-patched-libs
       # Cargo requires cargo to build, so we download a binary that we can use temporarily
       - host-bootstrap-cargo
-    revision: 3
+    revision: 4
     compile:
       - args:
         - '@THIS_SOURCE_DIR@/../host-bootstrap-cargo/cargo/bin/cargo'

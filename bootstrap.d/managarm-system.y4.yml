@@ -432,7 +432,7 @@ packages:
     pkgs_required:
       - mlibc
       - uacpi
-    revision: 4
+    revision: 5
     configure:
       # Managarm does not have a committed lockfile.
       # Delete any re-existing one such that cargo-inject-patches.py generates a fresh lockfile.
