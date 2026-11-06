@@ -1,0 +1,330 @@
+From 5f1d2365a6046463873d79b94d7625bc607e8b60 Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Fri, 6 Nov 2026 09:59:05 +0100
+Subject: [PATCH] managarm: Add the bindings that rustix needs
+
+Assisted-by: Claude Code (Opus 5.5)
+---
+ src/unix/linux_like/managarm/mod.rs | 226 ++++++++++++++++++++++++++++
+ 1 file changed, 226 insertions(+)
+
+diff --git a/src/unix/linux_like/managarm/mod.rs b/src/unix/linux_like/managarm/mod.rs
+index d58593d..20ffb31 100644
+--- a/src/unix/linux_like/managarm/mod.rs
++++ b/src/unix/linux_like/managarm/mod.rs
+@@ -1,13 +1,18 @@
+ use crate::prelude::*;
+ use crate::{
+     cc_t,
++    epoll_event,
+     gid_t,
++    id_t,
+     iovec,
+     pid_t,
++    rlimit,
+     sockaddr,
+     speed_t,
+     tcflag_t,
++    timespec,
+     uid_t,
++    DIR,
+ };
+ 
+ pub type __u8 = c_uchar;
+@@ -182,6 +187,14 @@ s! {
+         pub p_align: Elf64_Xword,
+     }
+ 
++    pub struct flock {
++        pub l_type: crate::c_short,
++        pub l_whence: crate::c_short,
++        pub l_start: off_t,
++        pub l_len: off_t,
++        pub l_pid: pid_t,
++    }
++
+     pub struct dl_phdr_info {
+         pub dlpi_addr: Elf64_Addr,
+         pub dlpi_name: *const crate::c_char,
+@@ -193,6 +206,11 @@ s! {
+         pub dlpi_tls_data: *mut crate::c_void,
+     }
+ 
++    pub struct itimerspec {
++        pub it_interval: timespec,
++        pub it_value: timespec,
++    }
++
+     #[repr(align(8))]
+     pub struct sched_param {
+         pub sched_priority: crate::c_int,
+@@ -259,6 +277,79 @@ s! {
+     }
+ }
+ 
++s_no_extra_traits! {
++    // Internal, for casts to access union fields
++    struct sifields_sigchld {
++        si_pid: crate::pid_t,
++        si_uid: crate::uid_t,
++        si_status: crate::c_int,
++        si_utime: crate::c_long,
++        si_stime: crate::c_long,
++    }
++
++    // Internal, for casts to access union fields
++    union sifields {
++        _align_pointer: *mut crate::c_void,
++        sigchld: sifields_sigchld,
++    }
++
++    // Internal, for casts to access union fields
++    struct siginfo_f {
++        _siginfo_base: [crate::c_int; 3],
++        sifields: sifields,
++    }
++}
++
++impl siginfo_t {
++    pub unsafe fn si_addr(&self) -> *mut crate::c_void {
++        #[repr(C)]
++        struct siginfo_sigfault {
++            _si_signo: crate::c_int,
++            _si_errno: crate::c_int,
++            _si_code: crate::c_int,
++            si_addr: *mut crate::c_void,
++        }
++        (*(self as *const siginfo_t).cast::<siginfo_sigfault>()).si_addr
++    }
++
++    pub unsafe fn si_value(&self) -> crate::sigval {
++        #[repr(C)]
++        struct siginfo_si_value {
++            _si_signo: crate::c_int,
++            _si_errno: crate::c_int,
++            _si_code: crate::c_int,
++            _si_timerid: crate::c_int,
++            _si_overrun: crate::c_int,
++            si_value: crate::sigval,
++        }
++        (*(self as *const siginfo_t).cast::<siginfo_si_value>()).si_value
++    }
++
++    unsafe fn sifields(&self) -> &sifields {
++        &(*(self as *const siginfo_t).cast::<siginfo_f>()).sifields
++    }
++
++    pub unsafe fn si_pid(&self) -> crate::pid_t {
++        self.sifields().sigchld.si_pid
++    }
++
++    pub unsafe fn si_uid(&self) -> crate::uid_t {
++        self.sifields().sigchld.si_uid
++    }
++
++    pub unsafe fn si_status(&self) -> crate::c_int {
++        self.sifields().sigchld.si_status
++    }
++
++    pub unsafe fn si_utime(&self) -> crate::c_long {
++        self.sifields().sigchld.si_utime
++    }
++
++    pub unsafe fn si_stime(&self) -> crate::c_long {
++        self.sifields().sigchld.si_stime
++    }
++}
++
+ pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = pthread_cond_t { opaque: [0; 8] };
+ pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = pthread_mutex_t { opaque: [0; 8] };
+ pub const SIGPROF: crate::c_int = 27;
+@@ -288,13 +379,22 @@ pub const SIGCANCEL: crate::c_int = 32;
+ pub const SIGTIMER: crate::c_int = 33;
+ pub const SOCK_STREAM: crate::c_int = 1;
+ pub const SOCK_DGRAM: crate::c_int = 2;
++pub const SOCK_SEQPACKET: crate::c_int = 5;
++pub const SOCK_NONBLOCK: crate::c_int = 2048;
+ pub const SO_REUSEADDR: crate::c_int = 2;
++pub const SO_TYPE: crate::c_int = 3;
+ pub const SO_ERROR: crate::c_int = 4;
+ pub const SO_BROADCAST: crate::c_int = 6;
++pub const SO_SNDBUF: crate::c_int = 7;
++pub const SO_RCVBUF: crate::c_int = 8;
++pub const SO_OOBINLINE: crate::c_int = 10;
+ pub const SO_KEEPALIVE: crate::c_int = 9;
+ pub const SO_LINGER: crate::c_int = 13;
++pub const SO_ACCEPTCONN: crate::c_int = 30;
++pub const SO_DOMAIN: crate::c_int = 39;
+ pub const SO_RCVTIMEO: crate::c_int = 20;
+ pub const SO_SNDTIMEO: crate::c_int = 21;
++pub const SO_REUSEPORT: crate::c_int = 15;
+ pub const SO_PASSCRED: crate::c_int = 16;
+ pub const SO_PEERCRED: crate::c_int = 17;
+ pub const SO_TIMESTAMP: crate::c_int = 29;
+@@ -437,19 +537,97 @@ pub const EHWPOISON: crate::c_int = 133;
+ pub const O_ACCMODE: crate::c_int = 2097155;
+ pub const O_CREAT: crate::c_int = 64;
+ pub const O_EXCL: crate::c_int = 128;
++pub const O_NOCTTY: crate::c_int = 256;
+ pub const O_TRUNC: crate::c_int = 512;
+ pub const O_APPEND: crate::c_int = 1024;
+ pub const O_NONBLOCK: crate::c_int = 2048;
++pub const O_DSYNC: crate::c_int = 4096;
++pub const O_ASYNC: crate::c_int = 8192;
+ pub const O_CLOEXEC: crate::c_int = 524288;
++pub const O_SYNC: crate::c_int = 1052672;
++pub const F_GETLK: crate::c_int = 5;
++pub const F_SETLK: crate::c_int = 6;
++pub const F_SETLKW: crate::c_int = 7;
++pub const F_RDLCK: crate::c_int = 0;
++pub const F_WRLCK: crate::c_int = 1;
++pub const F_UNLCK: crate::c_int = 2;
++pub const AT_EACCESS: crate::c_int = 512;
++pub const POSIX_FADV_DONTNEED: crate::c_int = 4;
++pub const POSIX_FADV_NOREUSE: crate::c_int = 5;
++pub const _SC_CLK_TCK: crate::c_int = 2;
+ pub const _SC_PAGESIZE: crate::c_int = 30;
+ pub const _SC_GETPW_R_SIZE_MAX: crate::c_int = 70;
+ pub const _SC_HOST_NAME_MAX: crate::c_int = 180;
++pub const FALLOC_FL_KEEP_SIZE: crate::c_int = 1;
++pub const FALLOC_FL_PUNCH_HOLE: crate::c_int = 2;
+ pub const PTHREAD_STACK_MIN: usize = 16384;
++pub const TIOCSCTTY: crate::Ioctl = 21518;
++pub const FIONREAD: crate::Ioctl = 21531;
+ pub const IOV_MAX: crate::c_int = 1024;
+ pub const FIONBIO: u64 = 21537;
+ pub const EAI_SYSTEM: crate::c_int = 9;
++pub const POLLWRNORM: crate::c_short = 256;
++pub const POLLWRBAND: crate::c_short = 512;
+ pub const PTHREAD_MUTEX_NORMAL: crate::c_int = 0;
++pub const EPOLL_CLOEXEC: crate::c_int = 524288;
++pub const EFD_SEMAPHORE: crate::c_int = 1;
++pub const EFD_CLOEXEC: crate::c_int = 524288;
++pub const EFD_NONBLOCK: crate::c_int = 2048;
+ pub const MAP_ANON: crate::c_int = 32;
++pub const PRIO_PROCESS: crate::c_int = 0;
++pub const PRIO_PGRP: crate::c_int = 1;
++pub const PRIO_USER: crate::c_int = 2;
++pub const RLIM_INFINITY: rlim_t = !0;
++pub const RLIMIT_CPU: crate::c_int = 0;
++pub const RLIMIT_FSIZE: crate::c_int = 1;
++pub const RLIMIT_DATA: crate::c_int = 2;
++pub const RLIMIT_STACK: crate::c_int = 3;
++pub const RLIMIT_CORE: crate::c_int = 4;
++pub const RLIMIT_NOFILE: crate::c_int = 7;
++pub const RLIMIT_AS: crate::c_int = 9;
++pub const RLIMIT_RSS: crate::c_int = 5;
++pub const RLIMIT_NPROC: crate::c_int = 6;
++pub const RLIMIT_MEMLOCK: crate::c_int = 8;
++pub const RLIMIT_LOCKS: crate::c_int = 10;
++pub const RLIMIT_SIGPENDING: crate::c_int = 11;
++pub const RLIMIT_MSGQUEUE: crate::c_int = 12;
++pub const RLIMIT_NICE: crate::c_int = 13;
++pub const RLIMIT_RTPRIO: crate::c_int = 14;
++pub const RLIMIT_RTTIME: crate::c_int = 15;
++pub const RTLD_DEFAULT: *mut crate::c_void = 0 as *mut crate::c_void;
++pub const ST_RDONLY: crate::c_ulong = 1;
++pub const ST_NOSUID: crate::c_ulong = 2;
++pub const TFD_NONBLOCK: crate::c_int = 2048;
++pub const TFD_CLOEXEC: crate::c_int = 524288;
++pub const TFD_TIMER_ABSTIME: crate::c_int = 1;
++pub const TFD_TIMER_CANCEL_ON_SET: crate::c_int = 2;
++
++safe_f! {
++    pub const safe fn makedev(major: crate::c_uint, minor: crate::c_uint) -> crate::dev_t {
++        let major = major as crate::dev_t;
++        let minor = minor as crate::dev_t;
++        let mut dev = 0;
++        dev |= (major & 0x00000fff) << 8;
++        dev |= (major & 0xfffff000) << 32;
++        dev |= (minor & 0x000000ff) << 0;
++        dev |= (minor & 0xffffff00) << 12;
++        dev
++    }
++
++    pub const safe fn major(dev: crate::dev_t) -> crate::c_uint {
++        let mut major = 0;
++        major |= (dev & 0x00000000000fff00) >> 8;
++        major |= (dev & 0xfffff00000000000) >> 32;
++        major as crate::c_uint
++    }
++
++    pub const safe fn minor(dev: crate::dev_t) -> crate::c_uint {
++        let mut minor = 0;
++        minor |= (dev & 0x00000000000000ff) >> 0;
++        minor |= (dev & 0x00000ffffff00000) >> 12;
++        minor as crate::c_uint
++    }
++}
+ 
+ f! {
+     pub unsafe fn CMSG_NXTHDR(
+@@ -490,7 +668,22 @@ extern "C" {
+         src_addr: *mut sockaddr,
+         addrlen: *mut socklen_t,
+     ) -> isize;
++    pub fn seekdir(dirp: *mut DIR, loc: crate::c_long);
+     pub fn __errno_location() -> *mut crate::c_int;
++    pub fn strerror_r(
++        errnum: crate::c_int,
++        buf: *mut crate::c_char,
++        buflen: size_t,
++    ) -> crate::c_int;
++    pub fn dup3(fd: crate::c_int, newfd: crate::c_int, flags: crate::c_int) -> crate::c_int;
++    pub fn faccessat(
++        fd: crate::c_int,
++        path: *const crate::c_char,
++        mode: crate::c_int,
++        flags: crate::c_int,
++    ) -> crate::c_int;
++    pub fn sync();
++    pub fn posix_fallocate(fd: crate::c_int, offset: off_t, size: off_t) -> crate::c_int;
+     pub fn dl_iterate_phdr(
+         callback: ::core::option::Option<
+             unsafe extern "C" fn(
+@@ -501,9 +694,42 @@ extern "C" {
+         >,
+         data: *mut crate::c_void,
+     ) -> crate::c_int;
++    pub fn epoll_create1(flags: crate::c_int) -> crate::c_int;
++    pub fn epoll_ctl(
++        epfd: crate::c_int,
++        mode: crate::c_int,
++        fd: crate::c_int,
++        ev: *mut epoll_event,
++    ) -> crate::c_int;
++    pub fn epoll_wait(
++        epfd: crate::c_int,
++        events: *mut epoll_event,
++        maxevents: crate::c_int,
++        timeout: crate::c_int,
++    ) -> crate::c_int;
++    pub fn epoll_pwait(
++        epfd: crate::c_int,
++        events: *mut epoll_event,
++        maxevents: crate::c_int,
++        timeout: crate::c_int,
++        sigmask: *const sigset_t,
++    ) -> crate::c_int;
++    pub fn eventfd(initval: crate::c_uint, flags: crate::c_int) -> crate::c_int;
+     pub fn mprotect(addr: *mut crate::c_void, size: usize, prot: crate::c_int) -> crate::c_int;
+     pub fn msync(addr: *mut crate::c_void, size: usize, flags: crate::c_int) -> crate::c_int;
+     pub fn madvise(addr: *mut crate::c_void, size: usize, advise: crate::c_int) -> crate::c_int;
++    pub fn getpriority(which: crate::c_int, who: id_t) -> crate::c_int;
++    pub fn setpriority(which: crate::c_int, who: id_t, prio: crate::c_int) -> crate::c_int;
++    pub fn getrlimit(resource: crate::c_int, rlim: *mut rlimit) -> crate::c_int;
++    pub fn setrlimit(resource: crate::c_int, rlim: *const rlimit) -> crate::c_int;
++    pub fn timerfd_create(clockid: crate::c_int, flags: crate::c_int) -> crate::c_int;
++    pub fn timerfd_settime(
++        fd: crate::c_int,
++        flags: crate::c_int,
++        value: *const itimerspec,
++        oldvalue: *mut itimerspec,
++    ) -> crate::c_int;
++    pub fn timerfd_gettime(fd: crate::c_int, value: *mut itimerspec) -> crate::c_int;
+     pub fn getrandom(buffer: *mut crate::c_void, max_size: usize, flags: crate::c_uint) -> isize;
+     pub fn preadv(
+         fd: crate::c_int,
+-- 
+2.47.3
+
