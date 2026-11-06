@@ -24,7 +24,7 @@ packages:
       - fontconfig
       - freetype
       - wayland
-    revision: 9
+    revision: 10
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false
@@ -81,7 +81,7 @@ packages:
       - libxkbcommon
       - xcb-util
       - xcb-util-image
-    revision: 3
+    revision: 4
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false

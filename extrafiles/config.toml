@@ -33,6 +33,7 @@ getrandom-02 = { path = "@SOURCE_ROOT@/ports/rust-getrandom-0.2", package = "get
 getrandom-03 = { path = "@SOURCE_ROOT@/ports/rust-getrandom-0.3", package = "getrandom" }
 rustix-038 = { path = "@SOURCE_ROOT@/ports/rust-rustix-0.38", package = "rustix" }
 rustix-10 = { path = "@SOURCE_ROOT@/ports/rust-rustix-1.0", package = "rustix" }
+polling = { path = "@SOURCE_ROOT@/ports/rust-polling" }
 uzers = { path = "@SOURCE_ROOT@/ports/rust-uzers", package = "uzers" }
 cc = { path = "@SOURCE_ROOT@/ports/rust-cc", package = "cc" }
 termios = { path = "@SOURCE_ROOT@/ports/rust-termios", package = "termios" }
