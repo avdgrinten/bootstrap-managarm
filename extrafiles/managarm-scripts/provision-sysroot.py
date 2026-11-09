@@ -7,6 +7,7 @@
 import argparse
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -261,6 +262,9 @@ def check_name(name):
 
 def cmd_apply(args):
     # Package installation runs after a provisioning pass that sets up xbps only, before /etc/passwd exists.
+    if args.sysusers:
+        subprocess.run(["systemd-sysusers", f"--root={args.root}"], check=True)
+
     if args.user or args.groups or args.password_hash:
         accounts = Accounts(args.root)
         for name in args.user:
@@ -301,6 +305,10 @@ def main():
         "--sshd-password-auth", action="store_true",
         help="Allow password logins over SSH",
     )
+    apply_parser.add_argument(
+        "--sysusers", action="store_true",
+        help="Create system users and groups from sysusers.d files",
+    )
     apply_parser.add_argument("--arch", choices=ARCHES, help="Target architecture (needed for the xbps repository)")
     xbps_group = apply_parser.add_mutually_exclusive_group()
     xbps_group.add_argument(
@@ -320,7 +328,7 @@ def main():
 
     try:
         args.func(args)
-    except (ProvisionError, OSError) as e:
+    except (ProvisionError, OSError, subprocess.CalledProcessError) as e:
         print(f"provision-sysroot: {e}", file=sys.stderr)
         sys.exit(1)
 

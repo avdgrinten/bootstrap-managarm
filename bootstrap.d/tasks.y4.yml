@@ -58,6 +58,7 @@ tasks:
       - 'root'
       - '4T1CNB2BgzJeI'
       - '--sshd-password-auth'
+      - '--sysusers'
     workdir: '@BUILD_ROOT@'
 
   - name: initialize-empty-image
