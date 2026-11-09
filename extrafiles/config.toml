@@ -21,6 +21,7 @@ mio-08 = { path = "@SOURCE_ROOT@/ports/rust-mio-0.8", package = "mio" }
 mio-10 = { path = "@SOURCE_ROOT@/ports/rust-mio-1.0", package = "mio" }
 nix-024 = { path = "@SOURCE_ROOT@/ports/rust-nix-0.24", package = "nix" }
 nix-029 = { path = "@SOURCE_ROOT@/ports/rust-nix-0.29", package = "nix" }
+nix-030 = { path = "@SOURCE_ROOT@/ports/rust-nix-0.30", package = "nix" }
 num_cpus = { path = "@SOURCE_ROOT@/ports/rust-num-cpus" }
 users = { path = "@SOURCE_ROOT@/ports/rust-users" }
 winit = { path = "@SOURCE_ROOT@/ports/rust-winit" }
