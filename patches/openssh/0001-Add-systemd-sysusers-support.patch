@@ -1,0 +1,130 @@
+From 6387d0f98561e2603913c0e8d24c9abe1b3f5af6 Mon Sep 17 00:00:00 2001
+From: Dennis Bonke <admin@dennisbonke.com>
+Date: Mon, 9 Nov 2026 21:31:24 +0100
+Subject: [PATCH] Add systemd-sysusers support
+
+---
+ Makefile.in          | 10 +++++++++-
+ configure.ac         | 33 +++++++++++++++++++++++++++++++++
+ sshd-sysuser.conf.in |  2 ++
+ 3 files changed, 44 insertions(+), 1 deletion(-)
+ create mode 100644 sshd-sysuser.conf.in
+
+diff --git a/Makefile.in b/Makefile.in
+index 4617ceb..d4c2bb9 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -7,6 +7,7 @@ exec_prefix=@exec_prefix@
+ bindir=@bindir@
+ sbindir=@sbindir@
+ libexecdir=@libexecdir@
++libdir=@libdir@
+ datadir=@datadir@
+ datarootdir=@datarootdir@
+ mandir=@mandir@
+@@ -28,6 +29,7 @@ SSHD_AUTH=$(libexecdir)/sshd-auth
+ SSH_PKCS11_HELPER=$(libexecdir)/ssh-pkcs11-helper
+ SSH_SK_HELPER=$(libexecdir)/ssh-sk-helper
+ PRIVSEP_PATH=@PRIVSEP_PATH@
++SYSTEMD_SYSUSERSDIR=@SYSTEMD_SYSUSERSDIR@
+ SSH_PRIVSEP_USER=@SSH_PRIVSEP_USER@
+ STRIP_OPT=@STRIP_OPT@
+ TEST_SHELL=@TEST_SHELL@
+@@ -427,7 +429,7 @@ install-nosysconf: $(CONFIGFILES) $(MANPAGES) $(TARGETS) install-files
+ check-config:
+ 	-$(DESTDIR)$(sbindir)/sshd -t -f $(DESTDIR)$(sysconfdir)/sshd_config
+ 
+-install-files:
++install-files: install-systemd
+ 	$(MKDIR_P) $(DESTDIR)$(bindir)
+ 	$(MKDIR_P) $(DESTDIR)$(sbindir)
+ 	$(MKDIR_P) $(DESTDIR)$(mandir)/$(mansubdir)1
+@@ -465,6 +467,12 @@ install-files:
+ 	$(INSTALL) -m 644 ssh-pkcs11-helper.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-pkcs11-helper.8
+ 	$(INSTALL) -m 644 ssh-sk-helper.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-sk-helper.8
+ 
++install-systemd:
++	@if [ -n "$(SYSTEMD_SYSUSERSDIR)" ]; then \
++		$(MKDIR_P) $(DESTDIR)$(SYSTEMD_SYSUSERSDIR) && \
++		$(INSTALL) -m 644 sshd-sysuser.conf $(DESTDIR)$(SYSTEMD_SYSUSERSDIR)/sshd.conf; \
++	fi
++
+ install-sysconf:
+ 	$(MKDIR_P) $(DESTDIR)$(sysconfdir)
+ 	@if [ ! -f $(DESTDIR)$(sysconfdir)/ssh_config ]; then \
+diff --git a/configure.ac b/configure.ac
+index ee77a04..cdda09a 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -4983,6 +4983,33 @@ AC_ARG_WITH([privsep-path],
+ )
+ AC_SUBST([PRIVSEP_PATH])
+ 
++AC_ARG_WITH([systemd],
++	[  --with-systemd          Install systemd sysusers configuration],
++	[with_systemd=$withval], [with_systemd=no])
++SYSTEMD_SYSUSERSDIR=
++AC_MSG_CHECKING([for systemd sysusers directory])
++if test "x$with_systemd" != "xno"; then
++	AC_ARG_WITH([systemd-sysusersdir],
++		[  --with-systemd-sysusersdir=DIR  Install sysusers configuration in DIR],
++		[ SYSTEMD_SYSUSERSDIR=$withval
++		  AC_MSG_RESULT([$SYSTEMD_SYSUSERSDIR (specified)]) ])
++	if test -z "$SYSTEMD_SYSUSERSDIR"; then
++		if test "x$PKGCONFIG" != "xno"; then
++			SYSTEMD_SYSUSERSDIR=`$PKGCONFIG --variable=sysusersdir systemd 2>/dev/null`
++			if test -n "$SYSTEMD_SYSUSERSDIR"; then
++				AC_MSG_RESULT([$SYSTEMD_SYSUSERSDIR (from pkg-config)])
++			fi
++		fi
++	fi
++	if test -z "$SYSTEMD_SYSUSERSDIR"; then
++		SYSTEMD_SYSUSERSDIR='${libdir}/sysusers.d'
++		AC_MSG_RESULT([${libdir}/sysusers.d (default)])
++	fi
++else
++	AC_MSG_RESULT([no])
++fi
++AC_SUBST([SYSTEMD_SYSUSERSDIR])
++
+ AC_ARG_WITH([xauth],
+ 	[  --with-xauth=PATH       Specify path to xauth program ],
+ 	[
+@@ -5737,6 +5764,7 @@ AC_SUBST([CFLAGS_NOPIE])
+ 
+ AC_EXEEXT
+ AC_CONFIG_FILES([Makefile buildpkg.sh opensshd.init openssh.xml \
++	sshd-sysuser.conf \
+ 	openbsd-compat/Makefile openbsd-compat/regress/Makefile \
+ 	survey.sh])
+ AC_OUTPUT
+@@ -5754,6 +5782,10 @@ G=`eval echo ${piddir}` ; G=`eval echo ${G}`
+ H=`eval echo ${PRIVSEP_PATH}` ; H=`eval echo ${H}`
+ I=`eval echo ${user_path}` ; I=`eval echo ${I}`
+ J=`eval echo ${superuser_path}` ; J=`eval echo ${J}`
++K=no
++if test -n "$SYSTEMD_SYSUSERSDIR"; then
++	K=`eval echo ${SYSTEMD_SYSUSERSDIR}` ; K=`eval echo ${K}`
++fi
+ 
+ echo ""
+ echo "OpenSSH has been configured with the following options:"
+@@ -5764,6 +5796,7 @@ echo "                   Askpass program: $E"
+ echo "                      Manual pages: $F"
+ echo "                          PID file: $G"
+ echo "  Privilege separation chroot path: $H"
++echo "        systemd sysusers directory: $K"
+ if test "x$external_path_file" = "x/etc/login.conf" ; then
+ echo "   At runtime, sshd will use the path defined in $external_path_file"
+ echo "   Make sure the path to scp is present, otherwise scp will not work"
+diff --git a/sshd-sysuser.conf.in b/sshd-sysuser.conf.in
+new file mode 100644
+index 0000000..08bfc46
+--- /dev/null
++++ b/sshd-sysuser.conf.in
+@@ -0,0 +1,2 @@
++#Type Name ID GECOS                  Home directory Shell
++u     sshd -  "SSH Daemon"           @PRIVSEP_PATH@   -
+-- 
+2.55.0
+

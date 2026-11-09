@@ -563,7 +563,7 @@ packages:
       - openssl
       - pam
       - zlib
-    revision: 7
+    revision: 8
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -575,6 +575,7 @@ packages:
         - '--with-superuser-path=/usr/sbin:/usr/bin'
         - '--with-pid-dir=/run'
         - '--with-pam'
+        - '--with-systemd'
         - '--disable-strip'
         environ:
           CONFIG_SITE: '@SOURCE_ROOT@/scripts/config.site'
@@ -625,3 +626,6 @@ packages:
     subpackages:
       - name: openssh-dbg
         include: ['/usr/lib/debug/**']
+    scripts:
+      post_install:
+        - args: ['systemd-sysusers']

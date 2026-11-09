@@ -1,33 +1,34 @@
-From 9f9dc8667989feea9408db1ac731a9b1e13b11a6 Mon Sep 17 00:00:00 2001
+From 51eb16f47c4d5d32b66e07a236cbafb711562b95 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
 Date: Fri, 13 Feb 2026 18:11:00 +0100
 Subject: [PATCH 3/3] HACK: Managarm support
 
 Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
 ---
- src/basic/capability-util.c        |  8 ++++++++
- src/basic/chase.c                  |  4 ++++
+ src/basic/capability-util.c        | 15 +++++++++++++++
+ src/basic/chase.c                  |  3 +--
  src/basic/mountpoint-util.c        |  7 +++++++
  src/basic/process-util.c           |  2 ++
  src/basic/raw-clone.c              |  7 +++++++
  src/core/exec-credential.c         |  5 +++++
- src/core/exec-invoke.c             | 21 ++++++++++++++++++++-
+ src/core/exec-invoke.c             | 24 +++++++++++++++++++++++-
  src/core/execute.c                 |  3 +++
  src/core/main.c                    |  3 +++
  src/core/manager.c                 |  3 +++
  src/include/override/sys/syscall.h |  4 ++++
+ src/journal/journald.c             |  2 +-
  src/journal/journald.conf.in       |  6 +++---
- src/libc/bpf.c                     |  9 +++++++++
+ src/libc/bpf.c                     |  7 +++++++
  src/libc/ioprio.c                  | 13 +++++++++++++
- src/libc/kcmp.c                    | 11 +++++++++++
- src/libc/keyctl.c                  | 30 ++++++++++++++++++++++++++++++
+ src/libc/kcmp.c                    |  9 +++++++++
+ src/libc/keyctl.c                  | 26 ++++++++++++++++++++++++++
  src/libc/mempolicy.c               | 16 ++++++++++++++++
  src/libc/mount.c                   | 18 ++++++++++++++++++
  src/libc/quota.c                   |  8 ++++++++
  src/libc/sched.c                   |  7 +++++++
  src/libc/signal.c                  |  8 ++++++++
  src/libc/stat.c                    |  8 ++++++++
- src/libc/unistd.c                  | 27 +++++++++++++++++++++++++++
+ src/libc/unistd.c                  | 26 ++++++++++++++++++++++++++
  src/libc/xattr.c                   | 18 ++++++++++++++++++
  src/shared/async.c                 |  4 ++++
  src/shared/copy.c                  |  4 ++++
@@ -37,10 +38,10 @@ Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
  src/shared/serialize.c             |  5 +++++
  units/systemd-journald.service.in  | 22 +++++++++++-----------
  units/systemd-udevd.service.in     | 26 +++++++++++++-------------
- 32 files changed, 297 insertions(+), 28 deletions(-)
+ 33 files changed, 296 insertions(+), 31 deletions(-)
 
 diff --git a/src/basic/capability-util.c b/src/basic/capability-util.c
-index f67add1..d2cb35a 100644
+index f67add1..9f54b46 100644
 --- a/src/basic/capability-util.c
 +++ b/src/basic/capability-util.c
 @@ -21,6 +21,9 @@
@@ -75,22 +76,48 @@ index f67add1..d2cb35a 100644
  }
  
  unsigned cap_last_cap(void) {
+@@ -147,6 +155,12 @@ int have_inheritable_cap(unsigned cap) {
+ }
+ 
+ int capability_ambient_set_apply(uint64_t set, bool also_inherit) {
++// HACK: Managarm doesn't do capabilities
++#ifdef __managarm__
++        (void)set;
++        (void)also_inherit;
++        return 0;
++#else
+         int r;
+ 
+         /* Remove capabilities requested in ambient set, but not in the bounding set */
+@@ -193,6 +207,7 @@ int capability_ambient_set_apply(uint64_t set, bool also_inherit) {
+                 }
+ 
+         return 0;
++#endif
+ }
+ 
+ int capability_gain_cap_setpcap(void) {
 diff --git a/src/basic/chase.c b/src/basic/chase.c
-index 0199f5d..0646ab1 100644
+index 0199f5d..18309d0 100644
 --- a/src/basic/chase.c
 +++ b/src/basic/chase.c
-@@ -88,7 +88,11 @@ static int log_prohibited_symlink(int fd, ChaseFlags flags) {
+@@ -88,7 +88,7 @@ static int log_prohibited_symlink(int fd, ChaseFlags flags) {
  }
  
  static int openat_opath_with_automount(int dir_fd, const char *path, bool automount) {
-+#ifdef __managarm__
+-        static bool can_open_tree = true;
 +        static bool can_open_tree = false;
-+#else
-         static bool can_open_tree = true;
-+#endif
          int r;
  
          /* Pin an inode via O_PATH semantics. Sounds pretty obvious to do this, right? You just do open()
+@@ -666,7 +666,6 @@ int chase(const char *path, const char *root, ChaseFlags flags, char **ret_path,
+ 
+         if (ret_path) {
+                 if (!FLAGS_SET(flags, CHASE_EXTRACT_FILENAME)) {
+-
+                         /* When "root" points to the root directory, the result of chaseat() is always
+                          * absolute, hence it is not necessary to prefix with the root. When "root" points to
+                          * a non-root directory, the result path is always normalized and relative, hence
 diff --git a/src/basic/mountpoint-util.c b/src/basic/mountpoint-util.c
 index b7c4870..638fd9b 100644
 --- a/src/basic/mountpoint-util.c
@@ -178,10 +205,25 @@ index 3d7f066..987d80a 100644
  
  int exec_setup_credentials(
 diff --git a/src/core/exec-invoke.c b/src/core/exec-invoke.c
-index fe836de..da218ef 100644
+index fe836de..48f72ad 100644
 --- a/src/core/exec-invoke.c
 +++ b/src/core/exec-invoke.c
-@@ -5438,6 +5438,8 @@ int exec_invoke(
+@@ -1070,11 +1070,14 @@ static int enforce_user(
+ 
+         if ((capability_ambient_set != 0 || context->secure_bits != 0) && uid != 0) {
+ 
++// HACK: Managarm does not implement this, and DBus will fail to start otherwise.
++#ifndef __managarm__
+                 /* First step: If we need to keep capabilities but drop privileges we need to make sure we
+                  * keep our caps, while we drop privileges. Add KEEP_CAPS to the securebits */
+                 r = set_securebits(1U << SECURE_KEEP_CAPS, 0);
+                 if (r < 0)
+                         return r;
++#endif
+         }
+ 
+         /* Second step: actually set the uids */
+@@ -5438,6 +5441,8 @@ int exec_invoke(
           * case this is a tty, regardless if we opened it ourselves or got it passed in pre-opened. */
          prepare_terminal(context, params);
  
@@ -190,7 +232,7 @@ index fe836de..da218ef 100644
          if (context->oom_score_adjust_set) {
                  /* When we can't make this change due to EPERM, then let's silently skip over it. User
                   * namespaces prohibit write access to this file, and we shouldn't trip up over that. */
-@@ -5449,6 +5451,7 @@ int exec_invoke(
+@@ -5449,6 +5454,7 @@ int exec_invoke(
                          return log_error_errno(r, "Failed to adjust OOM setting: %m");
                  }
          }
@@ -198,7 +240,7 @@ index fe836de..da218ef 100644
  
          if (context->coredump_filter_set) {
                  r = set_coredump_filter(context->coredump_filter);
-@@ -5583,6 +5586,8 @@ int exec_invoke(
+@@ -5583,6 +5589,8 @@ int exec_invoke(
                  }
          }
  
@@ -207,7 +249,7 @@ index fe836de..da218ef 100644
          if (params->cgroup_path) {
                  /* If delegation is enabled we'll pass ownership of the cgroup to the user of the new process. On cgroup v1
                   * this is only about systemd's own hierarchy, i.e. not the controller hierarchies, simply because that's not
-@@ -5647,6 +5652,7 @@ int exec_invoke(
+@@ -5647,6 +5655,7 @@ int exec_invoke(
                          }
                  }
          }
@@ -215,7 +257,7 @@ index fe836de..da218ef 100644
  
          needs_mount_namespace = exec_needs_mount_namespace(context, params, runtime);
  
-@@ -5755,6 +5761,8 @@ int exec_invoke(
+@@ -5755,6 +5764,8 @@ int exec_invoke(
  #endif
          }
  
@@ -224,7 +266,7 @@ index fe836de..da218ef 100644
          if (needs_sandboxing) {
                  int which_failed;
  
-@@ -5767,6 +5775,7 @@ int exec_invoke(
+@@ -5767,6 +5778,7 @@ int exec_invoke(
                          return log_error_errno(r, "Failed to adjust resource limit RLIMIT_%s: %m", rlimit_to_string(which_failed));
                  }
          }
@@ -232,7 +274,7 @@ index fe836de..da218ef 100644
  
          if (needs_setuid && context->pam_name && username) {
                  /* Let's call into PAM after we set up our own idea of resource limits so that pam_limits
-@@ -5783,11 +5792,16 @@ int exec_invoke(
+@@ -5783,11 +5795,16 @@ int exec_invoke(
                  /* PAM modules might have set some ambient caps. Query them here and merge them into
                   * the caps we want to set in the end, so that we don't end up unsetting them. */
                  uint64_t ambient_after_pam;
@@ -249,7 +291,7 @@ index fe836de..da218ef 100644
  
                  capability_ambient_set |= ambient_after_pam;
  
-@@ -6099,6 +6113,8 @@ int exec_invoke(
+@@ -6099,6 +6116,8 @@ int exec_invoke(
                  }
  #endif
  
@@ -258,7 +300,7 @@ index fe836de..da218ef 100644
                  if (!cap_test_all(bset)) {
                          r = capability_bounding_set_drop(bset, /* right_now= */ false);
                          if (r < 0) {
-@@ -6125,6 +6141,7 @@ int exec_invoke(
+@@ -6125,6 +6144,7 @@ int exec_invoke(
                                  return log_error_errno(r, "Failed to apply ambient capabilities (before UID change): %m");
                          }
                  }
@@ -266,7 +308,7 @@ index fe836de..da218ef 100644
          }
  
          /* chroot to root directory first, before we lose the ability to chroot */
-@@ -6218,6 +6235,8 @@ int exec_invoke(
+@@ -6218,6 +6238,8 @@ int exec_invoke(
                  }
  #endif
  
@@ -275,7 +317,7 @@ index fe836de..da218ef 100644
                  /* PR_GET_SECUREBITS is not privileged, while PR_SET_SECUREBITS is. So to suppress potential
                   * EPERMs we'll try not to call PR_SET_SECUREBITS unless necessary. Setting securebits
                   * requires CAP_SETPCAP. */
-@@ -6384,7 +6403,7 @@ int exec_invoke(
+@@ -6384,7 +6406,7 @@ int exec_invoke(
                          }
                  }
  #endif
@@ -358,6 +400,26 @@ index b6922a0..1cf092a 100644
  #endif
 +
 +#endif
+diff --git a/src/journal/journald.c b/src/journal/journald.c
+index a06752d..c9db244 100644
+--- a/src/journal/journald.c
++++ b/src/journal/journald.c
+@@ -29,7 +29,6 @@ static int run(int argc, char *argv[]) {
+                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "This program takes one or no arguments.");
+ 
+         namespace = argc > 1 ? empty_to_null(argv[1]) : NULL;
+-
+         log_set_facility(LOG_SYSLOG);
+ 
+         if (namespace)
+@@ -47,6 +46,7 @@ static int run(int argc, char *argv[]) {
+                 log_parse_environment();
+                 log_open();
+         }
++        
+ 
+         umask(0022);
+ 
 diff --git a/src/journal/journald.conf.in b/src/journal/journald.conf.in
 index 805b79b..9f60f3c 100644
 --- a/src/journal/journald.conf.in
@@ -383,16 +445,10 @@ index 805b79b..9f60f3c 100644
 +ReadKMsg=no
  #Audit=yes
 diff --git a/src/libc/bpf.c b/src/libc/bpf.c
-index 4a7498e..a4d9d32 100644
+index 4a7498e..521d532 100644
 --- a/src/libc/bpf.c
 +++ b/src/libc/bpf.c
-@@ -1,11 +1,20 @@
- /* SPDX-License-Identifier: LGPL-2.1-or-later */
- 
-+#include <errno.h>
- #include <sys/bpf.h>
- #include <sys/syscall.h>
- #include <unistd.h>
+@@ -6,6 +6,13 @@
  
  #if !HAVE_BPF
  int missing_bpf(int cmd, union bpf_attr *attr, size_t size) {
@@ -400,8 +456,7 @@ index 4a7498e..a4d9d32 100644
 +        (void)cmd;
 +        (void)attr;
 +        (void)size;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_bpf, cmd, attr, size);
 +#endif
@@ -438,16 +493,10 @@ index 5bb6404..33af067 100644
  }
  #endif
 diff --git a/src/libc/kcmp.c b/src/libc/kcmp.c
-index aafff99..8777573 100644
+index aafff99..427599a 100644
 --- a/src/libc/kcmp.c
 +++ b/src/libc/kcmp.c
-@@ -1,11 +1,22 @@
- /* SPDX-License-Identifier: LGPL-2.1-or-later */
- 
-+#include <errno.h>
- #include <sys/kcmp.h>
- #include <sys/syscall.h>
- #include <unistd.h>
+@@ -6,6 +6,15 @@
  
  #if !HAVE_KCMP
  int missing_kcmp(pid_t pid1, pid_t pid2, int type, unsigned long idx1, unsigned long idx2) {
@@ -457,24 +506,17 @@ index aafff99..8777573 100644
 +        (void)type;
 +        (void)idx1;
 +        (void)idx2;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_kcmp, pid1, pid2, type, idx1, idx2);
 +#endif
  }
  #endif
 diff --git a/src/libc/keyctl.c b/src/libc/keyctl.c
-index af4bca8..7edc9e4 100644
+index af4bca8..f186f7c 100644
 --- a/src/libc/keyctl.c
 +++ b/src/libc/keyctl.c
-@@ -1,23 +1,53 @@
- /* SPDX-License-Identifier: LGPL-2.1-or-later */
- 
-+#include <errno.h>
- #include <sys/keyctl.h>
- #include <sys/syscall.h>
- #include <unistd.h>
+@@ -6,18 +6,44 @@
  
  #if !HAVE_KEYCTL
  long missing_keyctl(int cmd, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5) {
@@ -484,8 +526,7 @@ index af4bca8..7edc9e4 100644
 +        (void)arg3;
 +        (void)arg4;
 +        (void)arg5;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_keyctl, cmd, arg2, arg3, arg4, arg5);
 +#endif
@@ -500,8 +541,7 @@ index af4bca8..7edc9e4 100644
 +        (void)payload;
 +        (void)plen;
 +        (void)ringid;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_add_key, type, description, payload, plen, ringid);
 +#endif
@@ -515,8 +555,7 @@ index af4bca8..7edc9e4 100644
 +        (void)description;
 +        (void)callout_info;
 +        (void)destringid;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_request_key, type, description, callout_info, destringid);
 +#endif
@@ -666,10 +705,10 @@ index b283005..e17063b 100644
  }
  #endif
 diff --git a/src/libc/unistd.c b/src/libc/unistd.c
-index 99777b3..21dd4ad 100644
+index 99777b3..a3ee925 100644
 --- a/src/libc/unistd.c
 +++ b/src/libc/unistd.c
-@@ -2,24 +2,51 @@
+@@ -2,24 +2,50 @@
  
  #include <sys/syscall.h>
  #include <unistd.h>
@@ -702,8 +741,7 @@ index 99777b3..21dd4ad 100644
 +        (void)argv;
 +        (void)envp;
 +        (void)flags;
-+        errno = ENOSYS;
-+        return -1;
++        return 0;
 +#else
          return syscall(__NR_execveat, dirfd, pathname, argv, envp, flags);
 +#endif
@@ -1005,5 +1043,5 @@ index 658c19b..7b3ea80 100644
 +#IPAddressDeny=any
  {{SERVICE_WATCHDOG}}
 -- 
-2.53.0
+2.55.0
 

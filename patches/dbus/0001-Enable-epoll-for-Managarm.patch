@@ -1,0 +1,25 @@
+From 3ff040bb79af74d8b48f25ef62fa435f555b0ada Mon Sep 17 00:00:00 2001
+From: Dennis Bonke <admin@dennisbonke.com>
+Date: Mon, 9 Nov 2026 17:56:53 +0100
+Subject: [PATCH] Enable epoll for Managarm
+
+---
+ dbus/dbus-pollable-set-epoll.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dbus/dbus-pollable-set-epoll.c b/dbus/dbus-pollable-set-epoll.c
+index 24f0093..a5407c7 100644
+--- a/dbus/dbus-pollable-set-epoll.c
++++ b/dbus/dbus-pollable-set-epoll.c
+@@ -30,7 +30,7 @@
+ #include <dbus/dbus-internals.h>
+ #include <dbus/dbus-sysdeps.h>
+ 
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__managarm__)
+ # error This file is for Linux epoll(4)
+ #endif
+ 
+-- 
+2.55.0
+
