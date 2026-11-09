@@ -89,7 +89,7 @@ tools:
         # Avoid exposing the original python3.
         expose: false
       - host-cargo
-    revision: 13
+    revision: 14
     install:
       - args: ['@BUILD_ROOT@/tools/host-python/bin/python3', '-m', 'venv', '.']
         workdir: '@PREFIX@'
@@ -695,7 +695,7 @@ packages:
     pkgs_required:
       - mlibc
       - python
-    revision: 7
+    revision: 8
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false

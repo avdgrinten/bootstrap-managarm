@@ -21,7 +21,7 @@ packages:
       - rust-patched-libs
     pkgs_required:
       - mlibc
-    revision: 10
+    revision: 11
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false

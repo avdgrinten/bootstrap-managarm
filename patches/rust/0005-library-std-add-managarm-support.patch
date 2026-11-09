@@ -1,4 +1,4 @@
-From cdcdd5bf5f3ff2129f320eb0d8b6d5711399d4da Mon Sep 17 00:00:00 2001
+From 17ff17e15127c6036cca7c9c1bad7197c503e619 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
 Date: Fri, 1 Sep 2023 16:49:14 +0200
 Subject: [PATCH 5/5] library/std: add managarm support
@@ -29,9 +29,9 @@ Subject: [PATCH 5/5] library/std: add managarm support
  library/std/src/sys/paths/unix.rs             |   3 +-
  library/std/src/sys/process/unix/unix.rs      |   4 +-
  library/std/src/sys/random/mod.rs             |   2 +-
- library/std/src/sys/thread/unix.rs            |   3 +-
+ library/std/src/sys/thread/unix.rs            |   9 +-
  library/unwind/src/lib.rs                     |   4 +
- 27 files changed, 263 insertions(+), 33 deletions(-)
+ 27 files changed, 267 insertions(+), 35 deletions(-)
  create mode 100644 library/std/src/os/managarm/fs.rs
  create mode 100644 library/std/src/os/managarm/mod.rs
  create mode 100644 library/std/src/os/managarm/net.rs
@@ -962,10 +962,26 @@ index 12346ef5..c7d6bfeb 100644
          mod getrandom;
          pub use getrandom::fill_bytes;
 diff --git a/library/std/src/sys/thread/unix.rs b/library/std/src/sys/thread/unix.rs
-index 81ef3958..4a02604f 100644
+index 81ef3958..d7966997 100644
 --- a/library/std/src/sys/thread/unix.rs
 +++ b/library/std/src/sys/thread/unix.rs
-@@ -421,7 +421,8 @@ pub fn set_name(name: &CStr) {
+@@ -156,6 +156,7 @@ pub fn available_parallelism() -> io::Result<NonZero<usize>> {
+             target_vendor = "apple",
+             target_os = "cygwin",
+             target_os = "wasi",
++            target_os = "managarm",
+         ) => {
+             #[allow(unused_assignments)]
+             #[allow(unused_mut)]
+@@ -390,6 +391,7 @@ pub fn current_os_id() -> Option<u64> {
+     target_os = "illumos",
+     target_os = "vxworks",
+     target_os = "cygwin",
++    target_os = "managarm",
+     target_vendor = "apple",
+ ))]
+ fn truncate_cstr<const MAX_WITH_NUL: usize>(cstr: &CStr) -> [libc::c_char; MAX_WITH_NUL] {
+@@ -421,13 +423,14 @@ pub fn set_name(name: &CStr) {
      target_os = "freebsd",
      target_os = "dragonfly",
      target_os = "nuttx",
@@ -975,6 +991,14 @@ index 81ef3958..4a02604f 100644
  ))]
  pub fn set_name(name: &CStr) {
      unsafe {
+         cfg_select! {
+-            any(target_os = "linux", target_os = "cygwin") => {
+-                // Linux and Cygwin limits the allowed length of the name.
++            any(target_os = "linux", target_os = "cygwin", target_os = "managarm") => {
++                // Linux, Cygwin and managarm limit the allowed length of the name.
+                 const TASK_COMM_LEN: usize = 16;
+                 let name = truncate_cstr::<{ TASK_COMM_LEN }>(name);
+             }
 diff --git a/library/unwind/src/lib.rs b/library/unwind/src/lib.rs
 index 22568d5f..6b06acee 100644
 --- a/library/unwind/src/lib.rs
@@ -988,5 +1012,5 @@ index 22568d5f..6b06acee 100644
 +#[link(name = "gcc_s", cfg(not(target_feature = "crt-static")))]
 +unsafe extern "C" {}
 -- 
-2.54.0
+2.47.3
 
