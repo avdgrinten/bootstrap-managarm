@@ -106,6 +106,56 @@ packages:
       - name: swaybg-dbg
         include: ['/usr/lib/debug/**']
 
+  - name: waypipe
+    architecture: '@OPTION:arch@'
+    metadata:
+      summary: Network proxy for Wayland clients
+      description: Waypipe is a proxy for Wayland clients. It forwards Wayland messages and serializes changes to shared memory buffers over a single socket.
+      spdx: 'GPL-3.0-or-later'
+      website: 'https://gitlab.freedesktop.org/mstoeckl/waypipe'
+      maintainer: "48cf <me@iretq.dev>"
+      categories: ['gui-apps']
+    source:
+      subdir: 'ports'
+      git: 'https://gitlab.freedesktop.org/mstoeckl/waypipe.git'
+      tag: 'v0.11.3'
+      version: '0.11.3'
+    tools_required:
+      - host-cargo
+      - host-rust
+      - system-gcc
+    sources_required:
+      - rust-patched-libs
+    pkgs_required:
+      - mlibc
+    revision: 1
+    configure:
+      - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
+        isolate_network: false
+    build:
+      # Without compression (lz4, zstd) and GPU (DMABUF, video) support for now.
+      - args:
+        - 'cargo'
+        - 'build'
+        - '--locked'
+        - '--release'
+        - '--no-default-features'
+        - '--bin'
+        - 'waypipe'
+        - '--target-dir'
+        - '@THIS_BUILD_DIR@'
+        - '--manifest-path'
+        - '@THIS_SOURCE_DIR@/Cargo.toml'
+        - '--target'
+        - '@OPTION:rust-arch@-unknown-managarm-mlibc'
+        - '-j@PARALLELISM@'
+        isolate_network: false
+      - args: ['install', '-Dm755', '@THIS_BUILD_DIR@/@OPTION:rust-arch@-unknown-managarm-mlibc/release/waypipe', '@THIS_COLLECT_DIR@/usr/bin/waypipe']
+      - args: ['@SOURCE_ROOT@/scripts/split-debug.py', '--binutils', '@THIS_COLLECT_DIR@']
+    subpackages:
+      - name: waypipe-dbg
+        include: ['/usr/lib/debug/**']
+
   - name: wlgears
     architecture: '@OPTION:arch@'
     metadata:

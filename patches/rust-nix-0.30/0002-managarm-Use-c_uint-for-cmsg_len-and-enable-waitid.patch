@@ -1,0 +1,93 @@
+From caf2cd1694a176b037b453eec70a3f9c7af9ebde Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Mon, 9 Nov 2026 17:49:37 +0100
+Subject: [PATCH] managarm: Use c_uint for cmsg_len and enable waitid()
+
+Assisted-by: Claude Code (Opus 5.5)
+---
+ src/sys/socket/mod.rs |  4 ++--
+ src/sys/wait.rs       | 12 +++++++++---
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/src/sys/socket/mod.rs b/src/sys/socket/mod.rs
+index 3b9c5c68..5dd7f99c 100644
+--- a/src/sys/socket/mod.rs
++++ b/src/sys/socket/mod.rs
+@@ -1375,14 +1375,14 @@ impl ControlMessage<'_> {
+ 
+     /// The value of CMSG_LEN on this message.
+     /// Safe because CMSG_LEN is always safe
+-    #[cfg(any(target_os = "android", target_os = "managarm",
++    #[cfg(any(target_os = "android",
+               all(target_os = "linux", not(any(target_env = "musl", target_env = "ohos"))),
+               target_os = "cygwin"))]
+     fn cmsg_len(&self) -> usize {
+         unsafe{CMSG_LEN(self.len() as libc::c_uint) as usize}
+     }
+ 
+-    #[cfg(not(any(target_os = "android", target_os = "managarm",
++    #[cfg(not(any(target_os = "android",
+               all(target_os = "linux", not(any(target_env = "musl", target_env = "ohos"))),
+               target_os = "cygwin")))]
+     fn cmsg_len(&self) -> libc::c_uint {
+diff --git a/src/sys/wait.rs b/src/sys/wait.rs
+index 844e165c..584e9cfc 100644
+--- a/src/sys/wait.rs
++++ b/src/sys/wait.rs
+@@ -29,7 +29,8 @@ libc_bitflags!(
+                   target_os = "freebsd",
+                   target_os = "haiku",
+                   target_os = "redox",
+-                  target_os = "netbsd"))]
++                  target_os = "netbsd",
++                  target_os = "managarm"))]
+         WEXITED;
+         /// Report the status of selected processes that have continued from a
+         /// job control stop by receiving a
+@@ -41,7 +42,8 @@ libc_bitflags!(
+                   target_os = "freebsd",
+                   target_os = "haiku",
+                   target_os = "redox",
+-                  target_os = "netbsd"))]
++                  target_os = "netbsd",
++                  target_os = "managarm"))]
+         WSTOPPED;
+         /// Don't reap, just poll status.
+         #[cfg(any(linux_android,
+@@ -49,7 +51,8 @@ libc_bitflags!(
+                   target_os = "freebsd",
+                   target_os = "haiku",
+                   target_os = "redox",
+-                  target_os = "netbsd"))]
++                  target_os = "netbsd",
++                  target_os = "managarm"))]
+         WNOWAIT;
+         /// Don't wait on children of other threads in this group
+         #[cfg(any(linux_android, target_os = "redox"))]
+@@ -242,6 +245,7 @@ impl WaitStatus {
+         target_os = "android",
+         target_os = "freebsd",
+         target_os = "haiku",
++        target_os = "managarm",
+         all(target_os = "linux", not(target_env = "uclibc")),
+     ))]
+     unsafe fn from_siginfo(siginfo: &libc::siginfo_t) -> Result<WaitStatus> {
+@@ -327,6 +331,7 @@ pub fn wait() -> Result<WaitStatus> {
+     target_os = "android",
+     target_os = "freebsd",
+     target_os = "haiku",
++    target_os = "managarm",
+     all(target_os = "linux", not(target_env = "uclibc")),
+ ))]
+ #[derive(Debug)]
+@@ -355,6 +360,7 @@ pub enum Id<'fd> {
+     target_os = "android",
+     target_os = "freebsd",
+     target_os = "haiku",
++    target_os = "managarm",
+     all(target_os = "linux", not(target_env = "uclibc")),
+ ))]
+ pub fn waitid(id: Id, flags: WaitPidFlag) -> Result<WaitStatus> {
+-- 
+2.47.3
+

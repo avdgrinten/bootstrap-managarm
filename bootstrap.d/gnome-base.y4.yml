@@ -235,7 +235,7 @@ packages:
         item: gobject-introspection
     sources_required:
       - rust-patched-libs
-    revision: 3
+    revision: 4
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false
@@ -339,7 +339,7 @@ packages:
         item: gobject-introspection
     sources_required:
       - rust-patched-libs
-    revision: 3
+    revision: 4
     configure:
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false
