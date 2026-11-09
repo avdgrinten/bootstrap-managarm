@@ -1618,7 +1618,7 @@ packages:
       - util-linux-libs
       - mlibc
       - pam
-    revision: 4
+    revision: 5
     configure:
       - args:
         - 'meson'
@@ -1631,7 +1631,7 @@ packages:
         - '--buildtype=debugoptimized'
         - '-Dlibc=mlibc'
         - '-Dadm-group=false'
-        - '-Danalyze=false'
+        - '-Danalyze=true'
         - '-Dapparmor=disabled'
         - '-Daudit=disabled'
         - '-Dbacklight=false'
@@ -1702,7 +1702,7 @@ packages:
         - '-Dzstd=disabled'
         - '-Dtests=false'
         - '-Dinstall-tests=false'
-        - '-Dsysusers=false'
+        - '-Dsysusers=true'
         - '-Drpmmacrosdir=no'
         - '-Dhomed=disabled'
         - '-Dpamconfdir=no'

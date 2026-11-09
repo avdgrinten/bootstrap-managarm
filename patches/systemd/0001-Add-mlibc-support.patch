@@ -1,11 +1,11 @@
-From 4b065d67aa21f8402ced7f705cba9e3b3187e4f9 Mon Sep 17 00:00:00 2001
+From 0c9660a5d3cb68a0e3bc854dc8c5f9c92f6b53c3 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
 Date: Thu, 29 Jan 2026 22:15:40 +0100
 Subject: [PATCH 1/3] Add mlibc support
 
 Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
 ---
- meson.build                          |   7 +
+ meson.build                          |   9 +
  meson_options.txt                    |   2 +-
  src/basic/basic-forward.h            |   2 +-
  src/basic/format-util.h              |   2 +-
@@ -15,7 +15,7 @@ Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
  src/libc/meson.build                 |   1 +
  src/libc/mlibc/meson.build           |   9 +
  src/libc/mlibc/printf.c              | 263 +++++++++++++++++++++++++++
- 10 files changed, 357 insertions(+), 3 deletions(-)
+ 10 files changed, 359 insertions(+), 3 deletions(-)
  create mode 100644 src/include/mlibc/gnu/libc-version.h
  create mode 100644 src/include/mlibc/malloc.h
  create mode 100644 src/include/mlibc/printf.h
@@ -23,23 +23,25 @@ Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
  create mode 100644 src/libc/mlibc/printf.c
 
 diff --git a/meson.build b/meson.build
-index 4746146..71f5d5e 100644
+index 4746146..a0cfb39 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -2105,6 +2105,13 @@ if get_option('libc') == 'musl'
-         ] + system_include_args
- 
+@@ -2107,6 +2107,15 @@ if get_option('libc') == 'musl'
          system_includes += include_directories('src/include/musl', is_system : true)
-+elif get_option('libc') == 'mlibc'
+ endif
+ 
++if get_option('libc') == 'mlibc'
 +        system_include_args = [
 +                '-isystem', meson.project_build_root()  / 'src/include/mlibc',
 +                '-isystem', meson.project_source_root() / 'src/include/mlibc',
 +        ] + system_include_args
 +
 +        system_includes += include_directories('src/include/mlibc', is_system : true)
- endif
- 
++endif
++
  basic_includes = [
+         include_directories(
+                 'src/basic',
 diff --git a/meson_options.txt b/meson_options.txt
 index 4ce3c7f..69c204d 100644
 --- a/meson_options.txt
@@ -468,5 +470,5 @@ index 0000000..6be5733
 +        return last;
 +}
 -- 
-2.53.0
+2.55.0
 
