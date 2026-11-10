@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Provisions a Managarm root: users, sshd and the xbps repository.
+# Provisions a Managarm root: base directories, users, sshd and the xbps repository.
 # Each option only adds to what the packages ship, and rerunning with the same options is a no-op.
 # The host (xbstrap, managarm-install.py sysroot) and the target run this script, so it only uses the stdlib.
 
@@ -34,6 +34,18 @@ XBPS_KEYS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "xbps-
 # Field counts of the colon-separated files in /etc, and which of their fields hold numeric ids.
 TABLE_FIELDS = {"passwd": 7, "group": 4, "shadow": 9, "gshadow": 4}
 TABLE_ID_FIELDS = {"passwd": [2, 3], "group": [2]}
+
+# xbps can only ship directories by shipping files in them, which fails below mount points, and
+# it creates directories with mode 0755.
+BASE_DIRS = {
+    "boot": 0o755,
+    "dev": 0o755,
+    "proc": 0o755,
+    "root": 0o700,
+    "run": 0o755,
+    "sys": 0o755,
+    "tmp": 0o1777,
+}
 
 
 class ProvisionError(Exception):
@@ -254,6 +266,15 @@ def set_xbps_repository(root, channel, arch):
         write_file(os.path.join(root, "var/db/xbps/keys", key), read_text(os.path.join(XBPS_KEYS_DIR, key)), mode=0o644)
 
 
+def make_base_dirs(root):
+    for name, mode in BASE_DIRS.items():
+        path = os.path.join(root, name)
+        make_dir(path, mode=mode)
+        # Packages that ship files below the directory may have created it already.
+        if not os.path.ismount(path) and os.stat(path).st_mode & 0o7777 != mode:
+            os.chmod(path, mode)
+
+
 def check_name(name):
     if not NAME_RE.fullmatch(name):
         raise ProvisionError(f"invalid user or group name {name!r}")
@@ -261,6 +282,9 @@ def check_name(name):
 
 
 def cmd_apply(args):
+    if args.base_dirs:
+        make_base_dirs(args.root)
+
     # Package installation runs after a provisioning pass that sets up xbps only, before /etc/passwd exists.
     if args.sysusers:
         subprocess.run(["systemd-sysusers", f"--root={args.root}"], check=True)
@@ -286,9 +310,13 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     apply_parser = subparsers.add_parser(
-        "apply", help="Add users, sshd settings and the xbps repository"
+        "apply", help="Add base directories, users, sshd settings and the xbps repository"
     )
     apply_parser.add_argument("--root", required=True, help="Root of the installation")
+    apply_parser.add_argument(
+        "--base-dirs", action="store_true",
+        help="Create the directories that packages cannot ship, such as mount points, and fix their modes",
+    )
     apply_parser.add_argument(
         "--user", action="append", default=[], metavar="NAME",
         help="Create a login user with a locked password unless it exists",

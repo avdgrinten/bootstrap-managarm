@@ -85,8 +85,9 @@ def populate_root(root, arch, channel, packages, account_args, repositories=()):
     # keeps the packages unconfigured, so that xbps-reconfigure configures them on the first boot.
     run(cmd + packages, env={**os.environ, "XBPS_TARGET_ARCH": arch})
 
+    # After the packages, which may have created /root with mode 0755.
     # The packages' sysusers hooks only run on the first boot, but the accounts need groups such as wheel.
-    provision(root, "--sysusers", *account_args)
+    provision(root, "--base-dirs", "--sysusers", *account_args)
 
 
 def cmd_sysroot(args):
@@ -260,10 +261,6 @@ def cmd_disk(args):
         account_args += ["--password-hash", args.user, password_hash]
     populate_root(root, arch, args.xbps_channel, packages, account_args, args.repository)
 
-    # core-files ships the other directories, but packages cannot set the mode of a directory.
-    os.makedirs(os.path.join(root, "boot"), exist_ok=True)
-    os.chmod(os.path.join(root, "root"), 0o700)
-    os.chmod(os.path.join(root, "tmp"), 0o1777)
     write_partition_config(root, root_partuuid, esp_partuuid)
 
     log("installing the boot files")

@@ -32,7 +32,7 @@ tasks:
       - '--sysroot=@SYSROOT_DIR@'
     workdir: '@BUILD_ROOT@'
 
-  # Adds the live image's users and the stable xbps repository to the sysroot.
+  # Adds the base directories, the live image's users and the stable xbps repository to the sysroot.
   # Rerunning it is harmless, and it must rerun after every install of core-files.
   - name: provision-sysroot
     pkgs_required:
@@ -43,6 +43,7 @@ tasks:
       - 'apply'
       - '--root'
       - '@SYSROOT_DIR@'
+      - '--base-dirs'
       - '--arch'
       - '@OPTION:arch@'
       - '--xbps-stable'
