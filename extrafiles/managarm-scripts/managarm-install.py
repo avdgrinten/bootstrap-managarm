@@ -85,7 +85,8 @@ def populate_root(root, arch, channel, packages, account_args, repositories=()):
     # keeps the packages unconfigured, so that xbps-reconfigure configures them on the first boot.
     run(cmd + packages, env={**os.environ, "XBPS_TARGET_ARCH": arch})
 
-    provision(root, *account_args)
+    # The packages' sysusers hooks only run on the first boot, but the accounts need groups such as wheel.
+    provision(root, "--sysusers", *account_args)
 
 
 def cmd_sysroot(args):
