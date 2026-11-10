@@ -13,7 +13,7 @@ packages:
     source:
       subdir: meta-sources
       version: '1.0'
-    revision: 21
+    revision: 22
     config_files:
       - '/etc/passwd'
       - '/etc/group'
@@ -23,14 +23,9 @@ packages:
       - '/etc/resolv.conf'
     configure: []
     build:
-      # Create initial directories
+      # Create initial directories; provision-sysroot.py --base-dirs creates the mount points
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/etc']
-      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/run']
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/root']
-      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/dev']
-      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/sys']
-      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/proc']
-      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/tmp']
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/home']
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/usr']
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/usr/share']
@@ -41,12 +36,7 @@ packages:
       - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/opt']
       # xbps does not install empty directories, .keep files fixes this
       - args: ['touch', '@THIS_COLLECT_DIR@/etc/.keep']
-      - args: ['touch', '@THIS_COLLECT_DIR@/run/.keep']
       - args: ['touch', '@THIS_COLLECT_DIR@/root/.keep']
-      - args: ['touch', '@THIS_COLLECT_DIR@/dev/.keep']
-      - args: ['touch', '@THIS_COLLECT_DIR@/sys/.keep']
-      - args: ['touch', '@THIS_COLLECT_DIR@/proc/.keep']
-      - args: ['touch', '@THIS_COLLECT_DIR@/tmp/.keep']
       - args: ['touch', '@THIS_COLLECT_DIR@/home/.keep']
       - args: ['touch', '@THIS_COLLECT_DIR@/var/.keep']
       - args: ['touch', '@THIS_COLLECT_DIR@/usr/bin/.keep']
