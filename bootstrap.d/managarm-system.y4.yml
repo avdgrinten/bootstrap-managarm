@@ -551,7 +551,7 @@ packages:
       # the lockfile (such that the source stays clean).
       - args: ['cp', '@THIS_SOURCE_DIR@/Cargo.lock', '@THIS_BUILD_DIR@/Cargo.lock']
       - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '--lockfile-path', '@THIS_BUILD_DIR@/Cargo.lock',
-               '@THIS_SOURCE_DIR@/Cargo.toml']
+               '--cargo-config', '@THIS_BUILD_DIR@/.cargo/config.toml', '@THIS_SOURCE_DIR@/Cargo.toml']
         isolate_network: false
     build:
       - args:
