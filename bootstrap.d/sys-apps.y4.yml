@@ -12,8 +12,8 @@ sources:
   - name: file
     subdir: ports
     git: 'https://github.com/file/file.git'
-    tag: 'FILE5_46'
-    version: '5.46'
+    tag: 'FILE5_48'
+    version: '5.48'
     tools_required:
       - host-autoconf-v2.69
       - host-automake-v1.15
@@ -64,6 +64,7 @@ tools:
       - host-autoconf-v2.69
       - host-automake-v1.15
       - host-libtool
+    revision: 1
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -453,7 +454,7 @@ packages:
     pkgs_required:
       - mlibc
       - zlib
-    revision: 4
+    revision: 1
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/configure'
@@ -461,6 +462,9 @@ packages:
         - '--prefix=/usr'
         - '--disable-bzlib'
         - '--disable-xzlib'
+        - '--disable-zstdlib'
+        - '--disable-libseccomp'
+        - '--disable-landlock'
     build:
       - args: ['make', '-j@PARALLELISM@']
       - args: ['make', 'install']

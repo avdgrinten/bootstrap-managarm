@@ -18,9 +18,9 @@ sources:
   - name: gnulib
     subdir: ports
     git: 'https://github.com/coreutils/gnulib.git'
-    commit: '17fe0d9e0ae455d1774658503fdab26fc4e58638'
+    commit: 'a1f2c658c64bbc4b8699189da43af9ffc5f77d66'
     branch: 'master'
-    version: '20260914'
+    version: '20261115'
 
   - name: gobject-introspection
     subdir: 'ports'
@@ -82,8 +82,8 @@ sources:
   - name: nss
     subdir: 'ports'
     git: 'https://github.com/nss-dev/nss.git'
-    tag: 'NSS_3_124_RTM'
-    version: '3.124.RTM'
+    tag: 'NSS_3_133_RTM'
+    version: '3.133.RTM'
 
   - name: plasma-wayland-protocols
     subdir: 'ports'
@@ -2864,7 +2864,7 @@ packages:
       - nspr
       - sqlite
       - zlib
-    revision: 3
+    revision: 1
     configure:
       - args: ['cp', '-r', '@THIS_SOURCE_DIR@/.', '@THIS_BUILD_DIR@']
     build:
@@ -2974,14 +2974,14 @@ packages:
     source:
       subdir: ports
       git: 'https://github.com/openssl/openssl.git'
-      tag: 'openssl-3.6.1'
-      version: '3.6.1'
+      tag: 'openssl-3.6.5'
+      version: '3.6.5'
     tools_required:
       - system-gcc
     pkgs_required:
       - mlibc
       - zlib
-    revision: 3
+    revision: 1
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/Configure'

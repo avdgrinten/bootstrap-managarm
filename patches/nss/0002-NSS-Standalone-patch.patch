@@ -1,4 +1,4 @@
-From ee4b3e43e0143f94289c418c0db5f803119e8be6 Mon Sep 17 00:00:00 2001
+From ba28171978f02ce8c4b58f1c57cb92556a6d2bc1 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
 Date: Wed, 27 Apr 2022 20:35:40 +0200
 Subject: [PATCH 2/2] NSS Standalone patch
@@ -255,5 +255,5 @@ index fbc420a..b983d88 100644
  HAVE_ALL_TARGET := 1
  
 -- 
-2.36.0
+2.55.0
 

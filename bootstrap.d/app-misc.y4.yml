@@ -67,7 +67,7 @@ packages:
       commit: 'c52f1373f5d91d8d7078fe129ac28664d3bbd941'
       # While unusual, version will be the date of the last bump + the NSS version used.
       # If needed, we can always fetch a set NSS commit past the last release to fix critical bugs.
-      version: '20260524.3.124'
+      version: '20261115.3.133'
     tools_required:
       - system-gcc
     pkgs_required:
@@ -75,7 +75,7 @@ packages:
       - p11-kit
     sources_required:
       - nss
-    revision: 2
+    revision: 1
     configure:
       - args: ['cp', '-r', '@THIS_SOURCE_DIR@/.', '@THIS_BUILD_DIR@']
       - args: ['cp', '@THIS_SOURCE_DIR@/../nss/lib/ckfw/builtins/certdata.txt', '@THIS_SOURCE_DIR@']
