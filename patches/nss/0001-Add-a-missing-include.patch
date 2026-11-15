@@ -1,15 +1,18 @@
-From 8c7f96493b8706d43b30f49d56e0e84ee27fe65e Mon Sep 17 00:00:00 2001
+From 183ddf0d5535d4fb32e4cde4f33304623cf52533 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
 Date: Wed, 27 Apr 2022 20:27:21 +0200
 Subject: [PATCH 1/2] Add a missing include
 
 Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
 ---
- lib/dbm/src/h_page.c | 1 +
- 1 file changed, 1 insertion(+)
+ lib/dbm/src/h_page.c                                          | 1 +
+ lib/freebl/libcrux/karamel/endianness.h                       | 2 +-
+ lib/freebl/libcrux/karamel/krml/lowstar_endianness.h          | 2 +-
+ lib/freebl/verified/karamel/include/krml/lowstar_endianness.h | 2 +-
+ 4 files changed, 4 insertions(+), 3 deletions(-)
 
 diff --git a/lib/dbm/src/h_page.c b/lib/dbm/src/h_page.c
-index d4e4ff6..7b3271e 100644
+index 3cc9c99..62c689d 100644
 --- a/lib/dbm/src/h_page.c
 +++ b/lib/dbm/src/h_page.c
 @@ -81,6 +81,7 @@ static char sccsid[] = "@(#)hash_page.c 8.7 (Berkeley) 8/16/94";
@@ -20,6 +23,45 @@ index d4e4ff6..7b3271e 100644
  
  #include "mcom_db.h"
  #include "hash.h"
+diff --git a/lib/freebl/libcrux/karamel/endianness.h b/lib/freebl/libcrux/karamel/endianness.h
+index d59d985..62a53cc 100644
+--- a/lib/freebl/libcrux/karamel/endianness.h
++++ b/lib/freebl/libcrux/karamel/endianness.h
+@@ -13,7 +13,7 @@
+ 
+ /* ... for Linux */
+ #if defined(__linux__) || defined(__CYGWIN__) || \
+-    defined(__USE_SYSTEM_ENDIAN_H__) || defined(__GLIBC__)
++    defined(__USE_SYSTEM_ENDIAN_H__) || defined(__GLIBC__) || defined(__mlibc__)
+ #include <endian.h>
+ 
+ /* ... for OSX */
+diff --git a/lib/freebl/libcrux/karamel/krml/lowstar_endianness.h b/lib/freebl/libcrux/karamel/krml/lowstar_endianness.h
+index 5a897cf..df3c676 100644
+--- a/lib/freebl/libcrux/karamel/krml/lowstar_endianness.h
++++ b/lib/freebl/libcrux/karamel/krml/lowstar_endianness.h
+@@ -14,7 +14,7 @@
+ /* ... for Linux */
+ #if defined(__linux__) || defined(__CYGWIN__) ||              \
+     defined(__USE_SYSTEM_ENDIAN_H__) || defined(__GLIBC__) || \
+-    defined(ESP_PLATFORM)
++    defined(ESP_PLATFORM) || defined(__mlibc__)
+ #include <endian.h>
+ 
+ /* ... for OSX */
+diff --git a/lib/freebl/verified/karamel/include/krml/lowstar_endianness.h b/lib/freebl/verified/karamel/include/krml/lowstar_endianness.h
+index 5f706fa..5e1f2b6 100644
+--- a/lib/freebl/verified/karamel/include/krml/lowstar_endianness.h
++++ b/lib/freebl/verified/karamel/include/krml/lowstar_endianness.h
+@@ -12,7 +12,7 @@
+ /******************************************************************************/
+ 
+ /* ... for Linux */
+-#if defined(__linux__) || defined(__CYGWIN__) || defined (__USE_SYSTEM_ENDIAN_H__) || defined(__GLIBC__)
++#if defined(__linux__) || defined(__CYGWIN__) || defined (__USE_SYSTEM_ENDIAN_H__) || defined(__GLIBC__) || defined(__mlibc__)
+ #  include <endian.h>
+ 
+ /* ... for OSX */
 -- 
-2.36.0
+2.55.0
 
