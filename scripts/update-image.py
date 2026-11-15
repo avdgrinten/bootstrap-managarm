@@ -524,11 +524,17 @@ def read_sysroot_volume_workspace(sysroot):
         return None
 
 
+# A sysroot without real ownership is owned by one user, which is not us if we are root in the container.
+# With real ownership, usr is owned by root and the mapping does nothing.
+def build_rsync_owner_args(sysroot):
+    st = os.stat(os.path.join(sysroot, "usr"))
+    return ["--numeric-ids", f"--usermap={st.st_uid}:0", f"--groupmap={st.st_gid}:0"]
+
+
 def build_rsync_shift_args(sysroot):
     workspace = read_sysroot_volume_workspace(sysroot)
     if workspace is None:
-        # Everything in the sysroot is owned by the current user.
-        return ["--numeric-ids", f"--usermap={os.getuid()}:0", f"--groupmap={os.getgid()}:0"]
+        return build_rsync_owner_args(sysroot)
 
     # This needs root since a sysroot with real ownership has directories that we cannot read.
     # The trailing slash makes find follow the sysroot if it is a link.
