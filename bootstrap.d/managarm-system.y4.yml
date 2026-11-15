@@ -25,6 +25,13 @@ sources:
     commit: 4e10f054d49cf142a4aad9679c136ac6fe5f5815
     version: '0.0pl@ROLLING_ID@'
 
+  - name: midgard
+    subdir: 'ports'
+    git: 'https://github.com/managarm/midgard.git'
+    branch: 'master'
+    rolling_version: true
+    version: '0.0pl@ROLLING_ID@'
+
   - name: managarm
     git: 'https://github.com/managarm/managarm.git'
     branch: 'master'
@@ -526,12 +533,7 @@ packages:
       website: 'https://github.com/managarm/midgard'
       maintainer: "48cf <me@iretq.dev>"
       categories: ['app-emulation']
-    source:
-      subdir: 'ports'
-      git: 'https://github.com/managarm/midgard.git'
-      branch: 'master'
-      rolling_version: true
-      version: '0.0pl@ROLLING_ID@'
+    from_source: midgard
     tools_required:
       - host-llvm-toolchain
       # The managarm crate generates its protocol bindings with bragi.
@@ -593,6 +595,65 @@ packages:
       post_install:
         # Preset only on the first installation, such that updates keep a user's choice.
         - args: '[ "$4" = yes ] || systemctl --global preset midgard.socket'
+
+  - name: midgard-agent
+    architecture: '@OPTION:arch@'
+    metadata:
+      summary: Guest agent for managarm running in midgard VMs
+      description: This package provides midgard-agent, which serves the sessions of midgard's command-line interface bifrost when managarm itself runs as a midgard guest.
+      spdx: 'MIT'
+      website: 'https://github.com/managarm/midgard'
+      maintainer: "48cf <me@iretq.dev>"
+      categories: ['app-emulation']
+    from_source: midgard
+    tools_required:
+      - host-cargo
+      - host-rust
+      - system-gcc
+    sources_required:
+      - rust-patched-libs
+    pkgs_required:
+      - mlibc
+    revision: 1
+    configure:
+      # The guest's crates are a workspace of their own, with their own lockfile, which gets
+      # patched in a copy (such that the source stays clean).
+      - args: ['cp', '@THIS_SOURCE_DIR@/guest-crates/Cargo.lock', '@THIS_BUILD_DIR@/Cargo.lock']
+      - args: ['@SOURCE_ROOT@/scripts/cargo-inject-patches.py', '--lockfile-path', '@THIS_BUILD_DIR@/Cargo.lock',
+               '@THIS_SOURCE_DIR@/guest-crates/Cargo.toml']
+        isolate_network: false
+    build:
+      - args:
+        - 'cargo'
+        - 'build'
+        - '--locked'
+        - '--release'
+        - '-p'
+        - 'midgard-agent'
+        - '--target-dir'
+        - '@THIS_BUILD_DIR@'
+        - '--manifest-path'
+        - '@THIS_SOURCE_DIR@/guest-crates/Cargo.toml'
+        - '-Zunstable-options'
+        - '--lockfile-path'
+        - '@THIS_BUILD_DIR@/Cargo.lock'
+        - '--target'
+        - '@OPTION:rust-arch@-unknown-managarm-mlibc'
+        - '-j@PARALLELISM@'
+        isolate_network: false
+        environ:
+          RUSTFLAGS: "-C relocation-model=static -Z on-broken-pipe=inherit"
+      - args: ['install', '-Dm755', '@THIS_BUILD_DIR@/@OPTION:rust-arch@-unknown-managarm-mlibc/release/midgard-agent',
+               '@THIS_COLLECT_DIR@/usr/libexec/midgard/midgard-agent']
+      # The unit only starts the agent if midgard asks for it on the kernel command line.
+      - args: ['install', '-Dm644', '-t', '@THIS_COLLECT_DIR@/usr/lib/systemd/system',
+               '@THIS_SOURCE_DIR@/guest-crates/midgard-agent/managarm/midgard-agent.service']
+      - args: ['mkdir', '-p', '@THIS_COLLECT_DIR@/usr/lib/systemd/system/multi-user.target.wants']
+      - args: ['ln', '-svn', '../midgard-agent.service', '@THIS_COLLECT_DIR@/usr/lib/systemd/system/multi-user.target.wants/']
+      - args: ['@SOURCE_ROOT@/scripts/split-debug.py', '--binutils', '@THIS_COLLECT_DIR@']
+    subpackages:
+      - name: midgard-agent-dbg
+        include: ['/usr/lib/debug/**']
 
   - name: uacpi
     metadata:
