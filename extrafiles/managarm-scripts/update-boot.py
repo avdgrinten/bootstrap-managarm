@@ -18,8 +18,9 @@ import tomllib
 # Revision of the CLI interface, bumped when we change the CLI interface that other scripts rely on.
 # Prior changes:
 # Revision 2: esp-contents writes all of the ESP and its stamp.
+# Revision 3: esp-contents takes --partitions.
 # The exact format of the CLI_REVISION line MUST be preserved as it is parsed by other scripts with a regexp.
-CLI_REVISION = 2
+CLI_REVISION = 3
 
 ARCHES = ["x86_64", "aarch64", "riscv64"]
 BIOS_BOOT_TYPE = "21686148-6449-6E6F-744E-656564454649"
@@ -50,9 +51,8 @@ class Config:
     )
 
     @staticmethod
-    def load(root):
-        def read(name, *, required):
-            path = os.path.join(root, "etc/managarm", name)
+    def load(root, *, partitions=None):
+        def read(path, *, required):
             try:
                 with open(path, "rb") as f:
                     return path, tomllib.load(f)
@@ -82,12 +82,14 @@ class Config:
         config = Config()
 
         # Written when the root is provisioned; all keys have defaults.
-        path, data = read("boot.toml", required=False)
+        path, data = read(os.path.join(root, "etc/managarm/boot.toml"), required=False)
         warn_unknown(path, data, "", {"cmdline"})
         config.cmdline = get(path, data, "", "cmdline", str, default="")
 
         # Written once the partitions of the target disk are known.
-        path, data = read("partitions.toml", required=True)
+        if partitions is None:
+            partitions = os.path.join(root, "etc/managarm/partitions.toml")
+        path, data = read(partitions, required=True)
         warn_unknown(path, data, "", {"root", "esp"})
 
         root_part = get(path, data, "", "root", dict, required=True)
@@ -259,7 +261,7 @@ def write_limine_conf(path, config, *, arch, targets):
 
 
 def cmd_esp_contents(args):
-    config = Config.load(args.root)
+    config = Config.load(args.root, partitions=args.partitions)
     files, external = make_esp_tree(args.root, args.arch, config, args.esp_dir, has_bios_boot=args.bios_boot)
     write_stamp(os.path.join(args.esp_dir, STAMP_PATH), files, external)
 
@@ -426,6 +428,10 @@ def main():
     esp_parser.add_argument(
         "--bios-boot", action="store_true",
         help="The disk has a BIOS boot partition, whose Limine stages and limine-bios.sys the caller installs",
+    )
+    esp_parser.add_argument(
+        "--partitions",
+        help="partitions.toml to use (default: ROOT/etc/managarm/partitions.toml)",
     )
     esp_parser.set_defaults(func=cmd_esp_contents)
 
