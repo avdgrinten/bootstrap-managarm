@@ -112,8 +112,10 @@ tasks:
     workdir: '@BUILD_ROOT@'
     containerless: true
 
-  # Like make-image but do not use root regardless of mount-using.
+  # Like make-image but does not need root on the host. This is slower since fuse2fs mounts the
+  # root file system inside of the container, where it records the ownership of the sysroot.
   - name: make-image-rootless
+    root_in_container: true
     pkgs_required:
       - core-files
       - limine
@@ -131,10 +133,11 @@ tasks:
       - '@SOURCE_ROOT@/scripts/update-image.py'
       - '--triple'
       - '@OPTION:arch-triple@'
+      - '--with-sysroot'
+      - '@SYSROOT_DIR@'
       - '--mount-using'
-      - 'guestfs'
+      - 'fuse2fs'
     workdir: '@BUILD_ROOT@'
-    containerless: true
 
   - name: remake-image
     root_in_container: true
