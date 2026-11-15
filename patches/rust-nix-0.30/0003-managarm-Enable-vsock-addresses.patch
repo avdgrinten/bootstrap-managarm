@@ -1,0 +1,138 @@
+From 5a9df2afb12c96946d7b612cc1164638eb4a062b Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Sun, 15 Nov 2026 20:57:54 +0100
+Subject: [PATCH] managarm: Enable vsock addresses
+
+---
+ src/sys/socket/addr.rs | 24 ++++++++++++------------
+ src/sys/socket/mod.rs  |  2 +-
+ 2 files changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/src/sys/socket/addr.rs b/src/sys/socket/addr.rs
+index f3446319..366bc505 100644
+--- a/src/sys/socket/addr.rs
++++ b/src/sys/socket/addr.rs
+@@ -9,7 +9,7 @@
+ ))]
+ #[cfg(feature = "net")]
+ pub use self::datalink::LinkAddr;
+-#[cfg(any(linux_android, apple_targets))]
++#[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+ pub use self::vsock::VsockAddr;
+ use super::sa_family_t;
+ use crate::errno::Errno;
+@@ -204,7 +204,7 @@ pub enum AddressFamily {
+     #[cfg(target_os = "linux")]
+     Nfc = libc::AF_NFC,
+     /// VMWare VSockets protocol for hypervisor-guest interaction.
+-    #[cfg(any(linux_android, apple_targets))]
++    #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+     Vsock = libc::AF_VSOCK,
+     /// ARPANet IMP addresses
+     #[cfg(bsd)]
+@@ -274,7 +274,7 @@ impl AddressFamily {
+             libc::AF_PACKET => Some(AddressFamily::Packet),
+             #[cfg(any(bsd, solarish))]
+             libc::AF_LINK => Some(AddressFamily::Link),
+-            #[cfg(any(linux_android, apple_targets))]
++            #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+             libc::AF_VSOCK => Some(AddressFamily::Vsock),
+             _ => None,
+         }
+@@ -1151,7 +1151,7 @@ pub union SockaddrStorage {
+     sin6: SockaddrIn6,
+     ss: libc::sockaddr_storage,
+     su: UnixAddr,
+-    #[cfg(any(linux_android, apple_targets))]
++    #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+     vsock: VsockAddr,
+ }
+ impl private::SockaddrLikePriv for SockaddrStorage {}
+@@ -1229,7 +1229,7 @@ impl SockaddrLike for SockaddrStorage {
+                 libc::AF_SYSTEM => unsafe {
+                     SysControlAddr::from_raw(addr, l).map(|sctl| Self { sctl })
+                 },
+-                #[cfg(any(linux_android, apple_targets))]
++                #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+                 libc::AF_VSOCK => unsafe {
+                     VsockAddr::from_raw(addr, l).map(|vsock| Self { vsock })
+                 },
+@@ -1391,7 +1391,7 @@ impl SockaddrStorage {
+     accessors! {as_sys_control_addr, as_sys_control_addr_mut, SysControlAddr,
+     AddressFamily::System, libc::sockaddr_ctl, sctl}
+ 
+-    #[cfg(any(linux_android, apple_targets))]
++    #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+     accessors! {as_vsock_addr, as_vsock_addr_mut, VsockAddr,
+     AddressFamily::Vsock, libc::sockaddr_vm, vsock}
+ }
+@@ -1428,7 +1428,7 @@ impl fmt::Display for SockaddrStorage {
+                 #[cfg(feature = "ioctl")]
+                 libc::AF_SYSTEM => self.sctl.fmt(f),
+                 libc::AF_UNIX => self.su.fmt(f),
+-                #[cfg(any(linux_android, apple_targets))]
++                #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+                 libc::AF_VSOCK => self.vsock.fmt(f),
+                 _ => "<Address family unspecified>".fmt(f),
+             }
+@@ -1490,7 +1490,7 @@ impl Hash for SockaddrStorage {
+                 #[cfg(feature = "ioctl")]
+                 libc::AF_SYSTEM => self.sctl.hash(s),
+                 libc::AF_UNIX => self.su.hash(s),
+-                #[cfg(any(linux_android, apple_targets))]
++                #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+                 libc::AF_VSOCK => self.vsock.hash(s),
+                 _ => self.ss.hash(s),
+             }
+@@ -1520,7 +1520,7 @@ impl PartialEq for SockaddrStorage {
+                 #[cfg(feature = "ioctl")]
+                 (libc::AF_SYSTEM, libc::AF_SYSTEM) => self.sctl == other.sctl,
+                 (libc::AF_UNIX, libc::AF_UNIX) => self.su == other.su,
+-                #[cfg(any(linux_android, apple_targets))]
++                #[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+                 (libc::AF_VSOCK, libc::AF_VSOCK) => self.vsock == other.vsock,
+                 _ => false,
+             }
+@@ -2051,7 +2051,7 @@ mod datalink {
+     }
+ }
+ 
+-#[cfg(any(linux_android, apple_targets))]
++#[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+ pub mod vsock {
+     use super::*;
+     use crate::sys::socket::addr::AddressFamily;
+@@ -2096,7 +2096,7 @@ pub mod vsock {
+     }
+ 
+     impl PartialEq for VsockAddr {
+-        #[cfg(linux_android)]
++        #[cfg(any(linux_android, target_os = "managarm"))]
+         fn eq(&self, other: &Self) -> bool {
+             let (inner, other) = (self.0, other.0);
+             (inner.svm_family, inner.svm_cid, inner.svm_port)
+@@ -2122,7 +2122,7 @@ pub mod vsock {
+     impl Eq for VsockAddr {}
+ 
+     impl Hash for VsockAddr {
+-        #[cfg(linux_android)]
++        #[cfg(any(linux_android, target_os = "managarm"))]
+         fn hash<H: Hasher>(&self, s: &mut H) {
+             let inner = self.0;
+             (inner.svm_family, inner.svm_cid, inner.svm_port).hash(s);
+diff --git a/src/sys/socket/mod.rs b/src/sys/socket/mod.rs
+index 5dd7f99c..5259e30a 100644
+--- a/src/sys/socket/mod.rs
++++ b/src/sys/socket/mod.rs
+@@ -65,7 +65,7 @@ pub use crate::sys::socket::addr::netlink::NetlinkAddr;
+ #[cfg(apple_targets)]
+ #[cfg(feature = "ioctl")]
+ pub use crate::sys::socket::addr::sys_control::SysControlAddr;
+-#[cfg(any(linux_android, apple_targets))]
++#[cfg(any(linux_android, apple_targets, target_os = "managarm"))]
+ pub use crate::sys::socket::addr::vsock::VsockAddr;
+ 
+ #[cfg(all(feature = "uio", not(target_os = "redox")))]
+-- 
+2.47.3
+
