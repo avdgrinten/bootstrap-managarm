@@ -605,7 +605,8 @@ class UpdateFsAction:
             "root",
         )
 
-        steps = [["set", "-ex"]]
+        # Directories that the steps create must not inherit a group-writable umask of the caller.
+        steps = [["set", "-ex"], ["umask", "022"]]
 
         # Let rsync shift UIDs/GIDs. This is only possible when running as root.
         rsync_id_args = []
