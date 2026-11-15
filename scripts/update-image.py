@@ -331,6 +331,11 @@ class MountAction:
 
             try:
                 os.mkdir(self.mountpoint)
+                # As root in the container, hand the mount point to the build directory's owner so that
+                # mount methods that run outside of the container can still use it.
+                if os.geteuid() == 0:
+                    st = os.stat(os.path.dirname(os.path.abspath(self.mountpoint)))
+                    os.chown(self.mountpoint, st.st_uid, st.st_gid)
             except FileExistsError:
                 pass
             fuse2fs_process = subprocess.Popen(
