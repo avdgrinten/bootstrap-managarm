@@ -50,10 +50,3 @@ zbus = { path = "@SOURCE_ROOT@/ports/rust-zbus/zbus" }
 zvariant = { path = "@SOURCE_ROOT@/ports/rust-zbus/zvariant" }
 target-lexicon = { path = "@SOURCE_ROOT@/ports/rust-target-lexicon" }
 cfg-expr = { path = "@SOURCE_ROOT@/ports/rust-cfg-expr" }
-
-# Programs outside of managarm's repository (e.g., midgard) use the Hel crates of the
-# managarm checkout, such that they match the kernel.
-[patch."https://github.com/managarm/managarm"]
-hel = { path = "@SOURCE_ROOT@/managarm/rust/hel" }
-hel-sys = { path = "@SOURCE_ROOT@/managarm/rust/hel-sys" }
-managarm = { path = "@SOURCE_ROOT@/managarm/rust/managarm" }

@@ -1,0 +1,11 @@
+# Unlike the [patch] tables of config.toml, which cargo applies to all packages, the ones in this
+# file only go into the cargo config of a package (written by cargo-inject-patches.py) if its
+# lockfile uses the patched crate, such that only these packages need the port as a source.
+# Each entry carries the version of its port, such that matching does not need the port's source.
+
+# Programs outside of managarm's repository (e.g., midgard) use the Hel crates of the
+# managarm checkout, such that they match the kernel.
+[patch."https://github.com/managarm/managarm"]
+hel = { path = "@SOURCE_ROOT@/managarm/rust/hel", version = "0.1" }
+hel-sys = { path = "@SOURCE_ROOT@/managarm/rust/hel-sys", version = "0.1" }
+managarm = { path = "@SOURCE_ROOT@/managarm/rust/managarm", version = "0.1" }
