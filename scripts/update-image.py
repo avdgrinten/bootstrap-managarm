@@ -2,7 +2,6 @@
 
 import argparse
 import errno
-import functools
 import json
 import os
 import re
@@ -385,7 +384,7 @@ class MountAction:
         return f'mount ("{self.image}" to "{self.mountpoint}" using {self.mount_using})'
 
 
-FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS INSTALL CP RSYNC")
+FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS CP RSYNC")
 
 
 # update-boot.py declares the revision of its command line interface; older versions do not.
@@ -437,78 +436,6 @@ def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
     yield FsAction.CP, stamp, os.path.dirname(os.path.join("boot", ESP_STAMP_PATH)) + "/"
 
 
-# Sysroots whose update-boot.py predates CLI revision 2, or that have none,
-# keep the ESP layout of their time until the stable repository catches up.
-# Without update-boot.py in the sysroot, the one from extrafiles/ generates all of the ESP into esp_dir,
-# and only limine.conf is taken from it.
-# TODO: Remove this workaround when stable caught up.
-def plan_legacy_esp(arch, sysroot, scriptdir, esp_dir):
-    yield FsAction.INSTALL, "initrd.cpio", "boot/managarm", dict(ignore_sysroot=True)
-
-    limine_conf = os.path.join(esp_dir, "limine.conf")
-    update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
-    if not os.path.exists(update_boot):
-        # Sysroots from repositories that predate managarm-scripts, e.g., CI's stable images.
-        print("update-image: The sysroot has no update-boot.py, using the one from extrafiles/")
-        update_boot = os.path.join(scriptdir, "../extrafiles/managarm-scripts/update-boot.py")
-    subprocess.run(
-        [
-            sys.executable,
-            update_boot,
-            "esp-contents",
-            "--root",
-            sysroot,
-            "--arch",
-            arch.split('-')[0],
-            "--esp-dir",
-            esp_dir,
-        ],
-        check=True,
-    )
-
-    if arch == "x86_64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-mb2", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield FsAction.CP, os.path.join(scriptdir, "grub.cfg"), "boot/grub/"
-
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTX64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield (
-            FsAction.CP,
-            "tools/host-limine/share/limine/limine-bios.sys",
-            "boot/",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-    elif arch == "aarch64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-linux.bin", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTAA64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-    elif arch == "riscv64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-linux.bin", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTRISCV64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-
-
 def generate_plan(arch, sysroot, scriptdir, bios_boot):
     tmpdir = tempfile.TemporaryDirectory()
     tmpdirs.append(tmpdir) # Prevent GC until script terminates.
@@ -536,10 +463,9 @@ def generate_plan(arch, sysroot, scriptdir, bios_boot):
     yield FsAction.ENSURE_LINKS
 
     update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
-    if os.path.exists(update_boot) and read_cli_revision(update_boot) >= 2:
-        yield from plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, tmpdir.name)
-    else:
-        yield from plan_legacy_esp(arch, sysroot, scriptdir, tmpdir.name)
+    if not os.path.exists(update_boot) or read_cli_revision(update_boot) < 2:
+        raise RuntimeError(f"{update_boot} does not exist or predates CLI revision 2, update managarm-scripts")
+    yield from plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, tmpdir.name)
 
     yield FsAction.RSYNC, "bin"
     yield FsAction.RSYNC, "lib"
@@ -677,16 +603,6 @@ class UpdateFsAction:
                 return
             steps.append(["mkdir", "-p", os.path.join(target_mntpoint, dir)])
 
-        def plan_install(source, dest, ignore_sysroot=False):
-            if not ignore_sysroot:
-                source = os.path.join(self.sysroot, source)
-            if is_fuse2fs and _is_boot(add_dest_basename(source, dest)):
-                read_boot_file(boot_files, source, dest)
-                return
-            target = os.path.join(target_mntpoint, dest)
-
-            steps.append(["install", source, target])
-
         def plan_rsync(dir, exclude_files=[]):
             source = os.path.join(self.sysroot, dir)
             target = os.path.join(target_mntpoint, dir)
@@ -718,7 +634,6 @@ class UpdateFsAction:
             {
                 FsAction.CREATE_DIR: plan_create_dir,
                 FsAction.ENSURE_LINKS: plan_ensure_links,
-                FsAction.INSTALL: plan_install,
                 FsAction.CP: plan_cp,
                 FsAction.RSYNC: plan_rsync,
             },
@@ -902,9 +817,7 @@ class RemakeImageAction:
     def _ensure_links(self):
         ensure_sysroot_links(self.sysroot)
 
-    def _install(self, src, dst, ignore_sysroot=False):
-        if not ignore_sysroot:
-            src = os.path.join(self.sysroot, src)
+    def _cp(self, src, dst):
         if _is_boot(add_dest_basename(src, dst)):
             read_boot_file(self._boot_files, src, dst)
             return
@@ -963,8 +876,7 @@ class RemakeImageAction:
             {
                 FsAction.CREATE_DIR: self._create_dir,
                 FsAction.ENSURE_LINKS: self._ensure_links,
-                FsAction.INSTALL: self._install,
-                FsAction.CP: functools.partial(self._install, ignore_sysroot=True),
+                FsAction.CP: self._cp,
                 FsAction.RSYNC: lambda *a, **kw: None,  # ignored
             },
         )
