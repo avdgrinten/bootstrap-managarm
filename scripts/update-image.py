@@ -607,9 +607,9 @@ class UpdateFsAction:
         if needs_root:
             rsync_id_args = build_rsync_shift_args(self.sysroot)
         elif is_fuse2fs:
-            # No shift: fuse2fs runs in the same user namespace as rsync. rsync's temporary files
-            # must be avoided since fuse2fs syncs the entire file system on each rename.
-            rsync_id_args = ["--numeric-ids", "--inplace"]
+            # No subordinate ID shift: fuse2fs runs in the same user namespace as rsync. rsync's temporary
+            # files must be avoided since fuse2fs syncs the entire file system on each rename.
+            rsync_id_args = build_rsync_owner_args(self.sysroot) + ["--inplace"]
 
         boot_dirs = []
         boot_files = {}
