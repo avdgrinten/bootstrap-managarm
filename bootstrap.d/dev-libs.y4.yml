@@ -2974,14 +2974,14 @@ packages:
     source:
       subdir: ports
       git: 'https://github.com/openssl/openssl.git'
-      tag: 'openssl-3.6.1'
-      version: '3.6.1'
+      tag: 'openssl-3.6.5'
+      version: '3.6.5'
     tools_required:
       - system-gcc
     pkgs_required:
       - mlibc
       - zlib
-    revision: 3
+    revision: 1
     configure:
       - args:
         - '@THIS_SOURCE_DIR@/Configure'
