@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import pathlib
 import subprocess
@@ -9,6 +10,8 @@ import tomllib
 
 REGISTRY_PREFIX = "registry+"
 GIT_PREFIX = "git+"
+
+PACKAGE_PATCHES = pathlib.Path("extrafiles") / "cargo-patches.toml"
 
 
 def fail(message):
@@ -34,10 +37,36 @@ def canonical_url(url):
     return url.removesuffix(".git")
 
 
-def load_patch_table():
-    """Map (patched source, crate name) -> compatibility class -> the port that supersedes it.
+def table_source(source):
+    """The patched source of a [patch] table: "crates-io" or the URL of a git repository."""
+    if source == "crates-io":
+        return source
+    return canonical_url(source)
 
-    The patched source is "crates-io" or the URL of a git repository."""
+
+def read_patches(tables):
+    """Yield (table name, key, crate name, spec) for each entry of the given [patch] tables."""
+    for source, patches in tables.items():
+        for key, spec in patches.items():
+            # The key is only a rename; "package" carries the real crate name.
+            yield source, key, spec.get("package", key), spec
+
+
+def port_version(key, path, hint=""):
+    port = os.path.join(path, "Cargo.toml")
+    if not os.path.exists(port):
+        fail(f"patch `{key}` points at {path}, which has no Cargo.toml{hint}")
+
+    with open(port, "rb") as f:
+        version = tomllib.load(f).get("package", {}).get("version")
+    if not isinstance(version, str):
+        fail(f"patch `{key}` has a non-literal version, which we cannot resolve")
+    return version
+
+
+def load_patch_table():
+    """Map (patched source, crate name) -> compatibility class -> the port that supersedes it,
+    for the [patch] tables of CARGO_HOME, which apply to all packages."""
     cargo_home = os.environ.get("CARGO_HOME")
     if not cargo_home:
         fail("CARGO_HOME is not set, cannot locate the [patch] tables")
@@ -50,22 +79,33 @@ def load_patch_table():
         tables = tomllib.load(f).get("patch", {})
 
     table = {}
-    for source, patches in tables.items():
-        if source != "crates-io":
-            source = canonical_url(source)
-        for key, spec in patches.items():
-            # The key is only a rename; "package" carries the real crate name.
-            name = spec.get("package", key)
-            port = os.path.join(spec["path"], "Cargo.toml")
-            if not os.path.exists(port):
-                fail(f"patch `{key}` points at {spec['path']}, which has no Cargo.toml")
+    for source, key, name, spec in read_patches(tables):
+        version = port_version(key, spec["path"])
+        table.setdefault((table_source(source), name), {})[compat_class(version)] = (version, spec["path"])
+    return table
 
-            with open(port, "rb") as f:
-                version = tomllib.load(f).get("package", {}).get("version")
-            if not isinstance(version, str):
-                fail(f"patch `{key}` has a non-literal version, which we cannot resolve")
 
-            table.setdefault((source, name), {})[compat_class(version)] = (version, spec["path"])
+def load_package_table():
+    """Map (patched source, crate name) -> compatibility class -> (table name, key, spec), for the
+    [patch] tables of PACKAGE_PATCHES, which only apply to packages whose lockfile uses them.
+
+    The entries carry the version of their port, such that matching them against a lockfile
+    does not need the port to be checked out."""
+    source_root = os.environ.get("XBSTRAP_SOURCE_ROOT")
+    if not source_root:
+        fail("XBSTRAP_SOURCE_ROOT is not set, cannot locate the source root")
+
+    with open(os.path.join(source_root, PACKAGE_PATCHES), "rb") as f:
+        tables = tomllib.load(f).get("patch", {})
+
+    table = {}
+    for source, key, name, spec in read_patches(tables):
+        if not isinstance(spec.get("path"), str):
+            fail(f"patch `{key}` in {PACKAGE_PATCHES} has no path")
+        if not isinstance(spec.get("version"), str):
+            fail(f"patch `{key}` in {PACKAGE_PATCHES} has no version")
+        spec = dict(spec, path=spec["path"].replace("@SOURCE_ROOT@", source_root))
+        table.setdefault((table_source(source), name), {})[compat_class(spec["version"])] = (source, key, spec)
     return table
 
 
@@ -98,6 +138,61 @@ def unpatched(lockfile, table):
     return pending
 
 
+def select(lockfile, table, members):
+    """The entries of a package table that lock entries use, whether or not they are applied yet."""
+    selected = {}
+    for pkg in load_lock(lockfile):
+        source = pkg.get("source")
+        if source is None:
+            if (pkg["name"], pkg["version"]) in members:
+                continue
+            # An applied patch is a path dependency, which the lockfile records without a source.
+            sources = [s for s, name in table if name == pkg["name"]]
+        else:
+            sources = [patched_source(source)]
+        for s in sources:
+            entry = table.get((s, pkg["name"]), {}).get(compat_class(pkg["version"]))
+            if entry:
+                selected[entry[:2]] = entry
+    return list(selected.values())
+
+
+def write_config(path, patches):
+    tables = {}
+    for source, key, spec in patches:
+        fields = {"path": spec["path"]}
+        if "package" in spec:
+            fields["package"] = spec["package"]
+        tables.setdefault(source, []).append((key, fields))
+
+    # JSON strings are valid TOML basic strings.
+    lines = []
+    for source, entries in tables.items():
+        lines.append(f"[patch.{json.dumps(source, ensure_ascii=False)}]")
+        for key, fields in entries:
+            inline = ", ".join(f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in fields.items())
+            lines.append(f"{json.dumps(key, ensure_ascii=False)} = {{ {inline} }}")
+        lines.append("")
+
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines))
+
+
+def workspace_members(manifest, lockfile_args):
+    """(name, version) of the workspace's own packages, which the lockfile records without a
+    source, just like applied patches."""
+    # --no-deps does not resolve, so this neither needs the patches nor touches the lockfile.
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version", "1",
+         "--manifest-path", manifest, *lockfile_args],
+        capture_output=True,
+    )
+    if metadata.returncode:
+        fail(f"cargo metadata failed:\n{metadata.stderr.decode('utf-8')}")
+    return {(pkg["name"], pkg["version"]) for pkg in json.loads(metadata.stdout)["packages"]}
+
+
 parser = argparse.ArgumentParser(description="Inject patched Rust libraries into Cargo lockfiles")
 parser.add_argument("manifest", type=pathlib.Path, help="path to Cargo.toml")
 parser.add_argument(
@@ -105,10 +200,20 @@ parser.add_argument(
     type=pathlib.Path,
     help="lockfile to use instead of the workspace's (passed to cargo as --lockfile-path)",
 )
+parser.add_argument(
+    "--cargo-config",
+    type=pathlib.Path,
+    help=f"cargo config to write the patches of {PACKAGE_PATCHES.name} that the lockfile uses into",
+)
 args = parser.parse_args()
 manifest = args.manifest
 
 table = load_patch_table()
+package_table = load_package_table()
+
+# The config of an earlier run must not leak into the cargo invocations below.
+if args.cargo_config and args.cargo_config.exists():
+    args.cargo_config.unlink()
 
 if args.lockfile_path:
     lockfile = args.lockfile_path
@@ -126,7 +231,8 @@ else:
     lockfile_args = []
 
 if not os.path.exists(lockfile):
-    # Resolving from scratch already applies the patches, so this needs no update pass.
+    # Resolving from scratch already applies the patches of CARGO_HOME, but the ones of
+    # PACKAGE_PATCHES are only selected from the result and applied by the update pass.
     print("cargo-inject-patches: no lockfile, generating one...")
     generate = subprocess.run(
         ["cargo", "generate-lockfile", "--manifest-path", manifest, *lockfile_args],
@@ -134,6 +240,26 @@ if not os.path.exists(lockfile):
     )
     if generate.returncode:
         fail(f"cargo generate-lockfile failed:\n{generate.stderr.decode('utf-8')}")
+
+config_args = []
+patches = select(lockfile, package_table, workspace_members(manifest, lockfile_args))
+if patches:
+    if not args.cargo_config:
+        fail(f"the lockfile uses crates that {PACKAGE_PATCHES.name} patches, but no --cargo-config "
+             "was given to write the patches into")
+
+    for source, key, spec in patches:
+        hint = ", make sure that the source containing it is in sources_required"
+        version = port_version(key, spec["path"], hint)
+        if compat_class(version) != compat_class(spec["version"]):
+            fail(f"patch `{key}` in {PACKAGE_PATCHES} claims version {spec['version']}, "
+                 f"but {spec['path']} is at {version}")
+        name = spec.get("package", key)
+        table.setdefault((table_source(source), name), {})[compat_class(version)] = (version, spec["path"])
+
+    write_config(args.cargo_config, patches)
+    config_args = ["--config", args.cargo_config]
+    print(f"cargo-inject-patches: wrote {len(patches)} patches to {args.cargo_config}")
 
 pending = unpatched(lockfile, table)
 
@@ -143,7 +269,7 @@ if not pending:
 
 # Only ever update the patched crates by exact version: a bare `cargo update` would
 # re-resolve the whole graph and drift every unrelated dependency off its pin.
-cmd = ["cargo", "update", "--manifest-path", manifest, *lockfile_args]
+cmd = ["cargo", *config_args, "update", "--manifest-path", manifest, *lockfile_args]
 cmd += [f"-p{name}@{version}" for name, version, _ in pending]
 
 output = subprocess.run(cmd, capture_output=True)
