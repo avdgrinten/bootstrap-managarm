@@ -45,7 +45,6 @@ jobs:
                   cat << EOF > bootstrap-site.yml
                   auto_pull: true
                   define_options:
-                    mount-using: 'loopback'
                     arch: '${{ matrix.arch }}'
                     arch-triple: '${{ matrix.triple }}'
                   pkg_management:
@@ -131,9 +130,6 @@ jobs:
             - name: Create sysroot
               run: |
                   src/extrafiles/managarm-scripts/managarm-install.py sysroot --arch ${{ matrix.arch }} --xbps-${{ matrix.image-type }} system-root
-            - name: Generate initrd
-              run: |
-                  system-root/usr/managarm/bin/gen-initrd.py --triple ${{ matrix.triple }} --sysroot=system-root
             - name: Build image
               run: |
                   src/scripts/update-image.py --triple ${{ matrix.triple }} remake

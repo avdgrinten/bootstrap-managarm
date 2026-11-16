@@ -2,7 +2,6 @@
 
 import argparse
 import errno
-import functools
 import json
 import os
 import re
@@ -23,6 +22,7 @@ elevation_method = None
 verbose = False
 MANAGARM_ROOT_PART_TYPE = "64212B3B-56A1-4DFB-971E-BC8CD027996A"
 EFI_SYSTEM_PART_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+PARTITION_CONFIG_PATH = "etc/managarm/partitions.toml"
 BIOS_BOOT_PART_TYPE = "21686148-6449-6E6F-744E-656564454649"
 # Written by update-boot.py esp-contents.
 ESP_STAMP_PATH = "managarm/update-boot.json"
@@ -191,17 +191,21 @@ def get_partuuid(partitions, idx, what):
     raise RuntimeError(f"Could not determine the PARTUUID of the {what} partition")
 
 
-# Must happen before the root fs is synced or made, so that the file also lands on the image.
-def write_partition_config(sysroot, root_partuuid, esp_partuuid):
-    path = os.path.join(sysroot, "etc/managarm/partitions.toml")
+# This does not go into the sysroot since the same sysroot can back several images.
+def write_partition_config(root_partuuid, esp_partuuid):
+    tmpdir = tempfile.TemporaryDirectory()
+    tmpdirs.append(tmpdir) # Prevent GC until script terminates.
+
+    path = os.path.join(tmpdir.name, "partitions.toml")
     if verbose:
         print(f"update-image: Writing {path} (root PARTUUID {root_partuuid})")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("[root]\n")
         f.write(f'partuuid = "{root_partuuid}"\n')
         f.write("\n[esp]\n")
         f.write(f'partuuid = "{esp_partuuid}"\n')
+    os.chmod(path, 0o644)
+    return path
 
 
 class MountAction:
@@ -327,6 +331,11 @@ class MountAction:
 
             try:
                 os.mkdir(self.mountpoint)
+                # As root in the container, hand the mount point to the build directory's owner so that
+                # mount methods that run outside of the container can still use it.
+                if os.geteuid() == 0:
+                    st = os.stat(os.path.dirname(os.path.abspath(self.mountpoint)))
+                    os.chown(self.mountpoint, st.st_uid, st.st_gid)
             except FileExistsError:
                 pass
             fuse2fs_process = subprocess.Popen(
@@ -385,7 +394,7 @@ class MountAction:
         return f'mount ("{self.image}" to "{self.mountpoint}" using {self.mount_using})'
 
 
-FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS INSTALL CP RSYNC")
+FsAction = Enum("FsAction", "CREATE_DIR ENSURE_LINKS CP RSYNC")
 
 
 # update-boot.py declares the revision of its command line interface; older versions do not.
@@ -400,8 +409,8 @@ def read_cli_revision(update_boot):
     return int(value)
 
 
-# update-boot.py esp-contents (CLI revision 2) generates all of the ESP, including its stamp.
-def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
+# update-boot.py esp-contents (CLI revision 3) generates all of the ESP, including its stamp.
+def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir, partition_config):
     esp_contents_args = [
         sys.executable,
         update_boot,
@@ -412,6 +421,8 @@ def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
         arch.split('-')[0],
         "--esp-dir",
         esp_dir,
+        "--partitions",
+        partition_config,
     ]
     if bios_boot:
         esp_contents_args.append("--bios-boot")
@@ -437,79 +448,7 @@ def plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, esp_dir):
     yield FsAction.CP, stamp, os.path.dirname(os.path.join("boot", ESP_STAMP_PATH)) + "/"
 
 
-# Sysroots whose update-boot.py predates CLI revision 2, or that have none,
-# keep the ESP layout of their time until the stable repository catches up.
-# Without update-boot.py in the sysroot, the one from extrafiles/ generates all of the ESP into esp_dir,
-# and only limine.conf is taken from it.
-# TODO: Remove this workaround when stable caught up.
-def plan_legacy_esp(arch, sysroot, scriptdir, esp_dir):
-    yield FsAction.INSTALL, "initrd.cpio", "boot/managarm", dict(ignore_sysroot=True)
-
-    limine_conf = os.path.join(esp_dir, "limine.conf")
-    update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
-    if not os.path.exists(update_boot):
-        # Sysroots from repositories that predate managarm-scripts, e.g., CI's stable images.
-        print("update-image: The sysroot has no update-boot.py, using the one from extrafiles/")
-        update_boot = os.path.join(scriptdir, "../extrafiles/managarm-scripts/update-boot.py")
-    subprocess.run(
-        [
-            sys.executable,
-            update_boot,
-            "esp-contents",
-            "--root",
-            sysroot,
-            "--arch",
-            arch.split('-')[0],
-            "--esp-dir",
-            esp_dir,
-        ],
-        check=True,
-    )
-
-    if arch == "x86_64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-mb2", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield FsAction.CP, os.path.join(scriptdir, "grub.cfg"), "boot/grub/"
-
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTX64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield (
-            FsAction.CP,
-            "tools/host-limine/share/limine/limine-bios.sys",
-            "boot/",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-    elif arch == "aarch64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-linux.bin", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTAA64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-    elif arch == "riscv64-managarm":
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-limine", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-linux.bin", "boot/managarm"
-        yield FsAction.INSTALL, "usr/managarm/bin/eir-uefi", "boot/managarm"
-        yield (
-            FsAction.CP,
-            os.path.join(sysroot, "usr/share/limine/BOOTRISCV64.EFI"),
-            "boot/EFI/BOOT",
-        )
-
-        yield FsAction.CP, limine_conf, "boot/"
-
-
-def generate_plan(arch, sysroot, scriptdir, bios_boot):
+def generate_plan(arch, sysroot, scriptdir, bios_boot, partition_config):
     tmpdir = tempfile.TemporaryDirectory()
     tmpdirs.append(tmpdir) # Prevent GC until script terminates.
 
@@ -536,10 +475,14 @@ def generate_plan(arch, sysroot, scriptdir, bios_boot):
     yield FsAction.ENSURE_LINKS
 
     update_boot = os.path.join(sysroot, "usr/managarm/bin/update-boot.py")
-    if os.path.exists(update_boot) and read_cli_revision(update_boot) >= 2:
-        yield from plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, tmpdir.name)
-    else:
-        yield from plan_legacy_esp(arch, sysroot, scriptdir, tmpdir.name)
+    revision = read_cli_revision(update_boot) if os.path.exists(update_boot) else 0
+    if revision < 2:
+        raise RuntimeError(f"{update_boot} does not exist or predates CLI revision 2, update managarm-scripts")
+    if revision == 2:
+        # Revision 3 only adds --partitions, so the update-boot.py from extrafiles/ generates the same ESP.
+        # TODO: Remove this when the stable repository ships CLI revision 3.
+        update_boot = os.path.join(scriptdir, "../extrafiles/managarm-scripts/update-boot.py")
+    yield from plan_esp_tree(arch, sysroot, scriptdir, bios_boot, update_boot, tmpdir.name, partition_config)
 
     yield FsAction.RSYNC, "bin"
     yield FsAction.RSYNC, "lib"
@@ -586,11 +529,17 @@ def read_sysroot_volume_workspace(sysroot):
         return None
 
 
+# A sysroot without real ownership is owned by one user, which is not us if we are root in the container.
+# With real ownership, usr is owned by root and the mapping does nothing.
+def build_rsync_owner_args(sysroot):
+    st = os.stat(os.path.join(sysroot, "usr"))
+    return ["--numeric-ids", f"--usermap={st.st_uid}:0", f"--groupmap={st.st_gid}:0"]
+
+
 def build_rsync_shift_args(sysroot):
     workspace = read_sysroot_volume_workspace(sysroot)
     if workspace is None:
-        # Everything in the sysroot is owned by the current user.
-        return ["--numeric-ids", f"--usermap={os.getuid()}:0", f"--groupmap={os.getgid()}:0"]
+        return build_rsync_owner_args(sysroot)
 
     # This needs root since a sysroot with real ownership has directories that we cannot read.
     # The trailing slash makes find follow the sysroot if it is a link.
@@ -645,8 +594,7 @@ class UpdateFsAction:
 
             needs_root = not os.access(target_mntpoint, os.W_OK, effective_ids=True)
 
-        write_partition_config(
-            self.sysroot,
+        partition_config = write_partition_config(
             get_partuuid(partitions, root_idx, "root"),
             get_partuuid(partitions, efi_idx, "EFI system"),
         )
@@ -657,16 +605,17 @@ class UpdateFsAction:
             "root",
         )
 
-        steps = [["set", "-ex"]]
+        # Directories that the steps create must not inherit a group-writable umask of the caller.
+        steps = [["set", "-ex"], ["umask", "022"]]
 
         # Let rsync shift UIDs/GIDs. This is only possible when running as root.
         rsync_id_args = []
         if needs_root:
             rsync_id_args = build_rsync_shift_args(self.sysroot)
         elif is_fuse2fs:
-            # No shift: fuse2fs runs in the same user namespace as rsync. rsync's temporary files
-            # must be avoided since fuse2fs syncs the entire file system on each rename.
-            rsync_id_args = ["--numeric-ids", "--inplace"]
+            # No subordinate ID shift: fuse2fs runs in the same user namespace as rsync. rsync's temporary
+            # files must be avoided since fuse2fs syncs the entire file system on each rename.
+            rsync_id_args = build_rsync_owner_args(self.sysroot) + ["--inplace"]
 
         boot_dirs = []
         boot_files = {}
@@ -676,16 +625,6 @@ class UpdateFsAction:
                 boot_dirs.append(dir)
                 return
             steps.append(["mkdir", "-p", os.path.join(target_mntpoint, dir)])
-
-        def plan_install(source, dest, ignore_sysroot=False):
-            if not ignore_sysroot:
-                source = os.path.join(self.sysroot, source)
-            if is_fuse2fs and _is_boot(add_dest_basename(source, dest)):
-                read_boot_file(boot_files, source, dest)
-                return
-            target = os.path.join(target_mntpoint, dest)
-
-            steps.append(["install", source, target])
 
         def plan_rsync(dir, exclude_files=[]):
             source = os.path.join(self.sysroot, dir)
@@ -714,15 +653,19 @@ class UpdateFsAction:
 
         bios_boot = any(part.type.upper() == BIOS_BOOT_PART_TYPE for part in partitions)
         iterate_plan(
-            generate_plan(self.arch, self.sysroot, scriptdir, bios_boot),
+            generate_plan(self.arch, self.sysroot, scriptdir, bios_boot, partition_config),
             {
                 FsAction.CREATE_DIR: plan_create_dir,
                 FsAction.ENSURE_LINKS: plan_ensure_links,
-                FsAction.INSTALL: plan_install,
                 FsAction.CP: plan_cp,
                 FsAction.RSYNC: plan_rsync,
             },
         )
+
+        # This comes last since the rsync of etc/ deletes everything that is not in the sysroot.
+        config_target = os.path.join(target_mntpoint, PARTITION_CONFIG_PATH)
+        steps.append(["mkdir", "-p", os.path.dirname(config_target)])
+        steps.append(["install", "-m", "644", partition_config, config_target])
 
         print("update-image: Updating the file system...")
 
@@ -852,6 +795,30 @@ def repair_root_fs(image, start):
         )
 
 
+def stamp_partition_config(image, start, partition_config):
+    device = "{}?offset={}".format(image, 512 * start)
+    target = "/" + PARTITION_CONFIG_PATH
+    # mkdir and rm fail harmlessly if the sysroot already has the directory or does not have the file.
+    commands = [
+        f"mkdir {os.path.dirname(target)}",
+        f"rm {target}",
+        f"write {partition_config} {target}",
+        f"sif {target} uid 0",
+        f"sif {target} gid 0",
+    ]
+    logged_check_call([debugfs_command, "-w", "-f", "-", device], input="\n".join(commands).encode())
+
+    # debugfs exits with zero even if one of its commands failed.
+    written = logged_run(
+        [debugfs_command, "-R", f"cat {target}", device],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    ).stdout
+    with open(partition_config, "rb") as f:
+        if f.read() != written:
+            raise RuntimeError(f"Failed to write {target} to {image}")
+
+
 def populate_esp(image, start, boot_dirs, boot_files):
     # manipulate it using mtools
     dosimg = "{}@@{}".format(image, start * 512)
@@ -902,9 +869,7 @@ class RemakeImageAction:
     def _ensure_links(self):
         ensure_sysroot_links(self.sysroot)
 
-    def _install(self, src, dst, ignore_sysroot=False):
-        if not ignore_sysroot:
-            src = os.path.join(self.sysroot, src)
+    def _cp(self, src, dst):
         if _is_boot(add_dest_basename(src, dst)):
             read_boot_file(self._boot_files, src, dst)
             return
@@ -946,8 +911,7 @@ class RemakeImageAction:
                 raise RuntimeError(f"{self.image} does not have exactly one {what} partition")
             return str(uuid.UUID(partuuids[0]))
 
-        write_partition_config(
-            self.sysroot,
+        partition_config = write_partition_config(
             partuuid_of_type(MANAGARM_ROOT_PART_TYPE, "root"),
             partuuid_of_type(EFI_SYSTEM_PART_TYPE, "EFI system"),
         )
@@ -959,12 +923,12 @@ class RemakeImageAction:
                 self.sysroot,
                 scriptdir,
                 any(parttype.upper() == BIOS_BOOT_PART_TYPE for _, _, parttype, _ in parts),
+                partition_config,
             ),
             {
                 FsAction.CREATE_DIR: self._create_dir,
                 FsAction.ENSURE_LINKS: self._ensure_links,
-                FsAction.INSTALL: self._install,
-                FsAction.CP: functools.partial(self._install, ignore_sysroot=True),
+                FsAction.CP: self._cp,
                 FsAction.RSYNC: lambda *a, **kw: None,  # ignored
             },
         )
@@ -987,6 +951,7 @@ class RemakeImageAction:
                 "{}K".format(size // 1024),
             ]
             logged_check_call(cmd)
+            stamp_partition_config(self.image, start, partition_config)
 
         def setup_esp(start, size):
             # image_create creates a 256MiB ESP partition, while older images
@@ -1171,6 +1136,7 @@ except (FileNotFoundError, json.JSONDecodeError):
 sfdisk_command = try_find_command_exec("sfdisk")
 mkfsvfat_command = try_find_command_exec("mkfs.vfat")
 mke2fs_command = try_find_command_exec("mke2fs")
+debugfs_command = try_find_command_exec("debugfs")
 e2fsck_command = try_find_command_exec("e2fsck")
 
 if verbose:
