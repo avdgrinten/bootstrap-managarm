@@ -45,7 +45,6 @@ jobs:
                   cat << EOF > bootstrap-site.yml
                   auto_pull: true
                   define_options:
-                    mount-using: 'loopback'
                     arch: '${{ matrix.arch }}'
                     arch-triple: '${{ matrix.triple }}'
                   pkg_management:
