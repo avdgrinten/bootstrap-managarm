@@ -108,7 +108,7 @@ tasks:
       - '--triple'
       - '@OPTION:arch-triple@'
       - '--mount-using'
-      - '@OPTION:mount-using@'
+      - 'loopback'
     workdir: '@BUILD_ROOT@'
     containerless: true
 

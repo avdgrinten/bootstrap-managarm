@@ -106,8 +106,6 @@ declare_options:
     default: x86_64
   - name: arch-triple
     default: x86_64-managarm
-  - name: mount-using
-    default: guestfs
   - name: image-size
     default: 8G
   - name: rust-arch
