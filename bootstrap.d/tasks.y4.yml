@@ -137,6 +137,7 @@ tasks:
     containerless: true
 
   - name: remake-image
+    root_in_container: true
     pkgs_required:
       - core-files
       - limine
@@ -151,6 +152,8 @@ tasks:
       - update-initrd
       - provision-sysroot
     args:
+      - '@SOURCE_ROOT@/scripts/run-as-sysroot-owner.py'
+      - '@SYSROOT_DIR@'
       - '@SOURCE_ROOT@/scripts/update-image.py'
       - '--triple'
       - '@OPTION:arch-triple@'
