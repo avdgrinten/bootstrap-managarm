@@ -1,20 +1,43 @@
-From 59bd4caf0e46e8d4b75e3031d910dca613e8a286 Mon Sep 17 00:00:00 2001
-From: iretq <me@iretq.dev>
-Date: Sun, 26 Apr 2026 19:18:42 +0200
+From 3b3b6edcb4811ed2615fc9c991daa5686a4cd9f8 Mon Sep 17 00:00:00 2001
+From: Dennis Bonke <admin@dennisbonke.com>
+Date: Wed, 18 Nov 2026 23:06:27 +0100
 Subject: [PATCH 2/2] Add Managarm logo
 
-Co-authored-by: conkkerxd <conkkerxd@gmail.com>
 ---
- src/logo/ascii/managarm.txt | 14 ++++++++++++++
- src/logo/builtin.c          | 10 ++++++++++
- 2 files changed, 24 insertions(+)
- create mode 100644 src/logo/ascii/managarm.txt
+ src/logo/ascii/m.inc          | 13 +++++++++++++
+ src/logo/ascii/m/managarm.txt | 14 ++++++++++++++
+ 2 files changed, 27 insertions(+)
+ create mode 100644 src/logo/ascii/m/managarm.txt
 
-diff --git a/src/logo/ascii/managarm.txt b/src/logo/ascii/managarm.txt
+diff --git a/src/logo/ascii/m.inc b/src/logo/ascii/m.inc
+index 68bc8cc..c1dc370 100644
+--- a/src/logo/ascii/m.inc
++++ b/src/logo/ascii/m.inc
+@@ -164,6 +164,19 @@ static const FFlogo M[] = {
+         .colorTitle = FF_COLOR_FG_DEFAULT,
+     },
+     #endif
++    #ifdef FASTFETCH_DATATEXT_LOGO_MANAGARM
++    // Managarm
++    {
++        .names = {"Managarm"},
++        .lines = FASTFETCH_DATATEXT_LOGO_MANAGARM,
++        .colors = {
++            FF_COLOR_FG_WHITE,
++            FF_COLOR_FG_256 "117",
++        },
++        .colorKeys = FF_COLOR_FG_256 "117",
++        .colorTitle = FF_COLOR_FG_256 "117",
++    },
++    #endif
+     #ifdef FASTFETCH_DATATEXT_LOGO_MANDRIVA
+     // Mandriva
+     {
+diff --git a/src/logo/ascii/m/managarm.txt b/src/logo/ascii/m/managarm.txt
 new file mode 100644
-index 0000000..7c624d2
+index 0000000..e7387c9
 --- /dev/null
-+++ b/src/logo/ascii/managarm.txt
++++ b/src/logo/ascii/m/managarm.txt
 @@ -0,0 +1,14 @@
 +               $2l  l
 +             /##,/#.
@@ -30,27 +53,7 @@ index 0000000..7c624d2
 +`';########################````
 +  \#####""""""""""""'``
 +   `"''
-diff --git a/src/logo/builtin.c b/src/logo/builtin.c
-index b062be1..451df37 100644
---- a/src/logo/builtin.c
-+++ b/src/logo/builtin.c
-@@ -2737,6 +2737,16 @@ static const FFlogo M[] = {
-         .colorKeys = FF_COLOR_FG_GREEN,
-         .colorTitle = FF_COLOR_FG_RED,
-     },
-+    {
-+        .names = {"Managarm"},
-+        .lines = FASTFETCH_DATATEXT_LOGO_MANAGARM,
-+        .colors = {
-+            FF_COLOR_FG_WHITE,
-+            FF_COLOR_FG_256 "117",
-+        },
-+        .colorKeys = FF_COLOR_FG_256 "117",
-+        .colorTitle = FF_COLOR_FG_256 "117",
-+    },
-     // Mandriva
-     {
-         .names = {"mandriva", "mandrake"},
+\ No newline at end of file
 -- 
 2.55.0
 
