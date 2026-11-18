@@ -1,0 +1,73 @@
+From 18fe7e590d9ff9eee0fc0ca2f2330c52c43df956 Mon Sep 17 00:00:00 2001
+From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
+Date: Sun, 15 Nov 2026 20:57:54 +0100
+Subject: [PATCH] Allow vsock sockets on managarm
+
+---
+ src/main.rs | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/main.rs b/src/main.rs
+index 8046379..85920f3 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -194,9 +194,9 @@ enum SocketSpec {
+ }
+ 
+ /* Wrapper for `libc::VMADDR_CID_HOST` or 0 if not supported */
+-#[cfg(target_os = "linux")]
++#[cfg(any(target_os = "linux", target_os = "managarm"))]
+ const VMADDR_CID_HOST: u32 = libc::VMADDR_CID_HOST;
+-#[cfg(not(target_os = "linux"))]
++#[cfg(not(any(target_os = "linux", target_os = "managarm")))]
+ const VMADDR_CID_HOST: u32 = 0;
+ 
+ impl FromStr for VSockConfig {
+@@ -481,7 +481,7 @@ fn socket_connect(
+ 
+             socket
+         }
+-        #[cfg(target_os = "linux")]
++        #[cfg(any(target_os = "linux", target_os = "managarm"))]
+         SocketSpec::VSock(v) => {
+             let socket = socket::socket(
+                 socket::AddressFamily::Vsock,
+@@ -522,7 +522,7 @@ fn socket_connect(
+                 socket
+             }
+         }
+-        #[cfg(not(target_os = "linux"))]
++        #[cfg(not(any(target_os = "linux", target_os = "managarm")))]
+         SocketSpec::VSock(_) => unreachable!(),
+     };
+     set_nonblock(&socket)?;
+@@ -608,7 +608,7 @@ fn socket_create_and_bind(
+     flags: socket::SockFlag,
+ ) -> Result<(OwnedFd, Option<FileCleanup>), String> {
+     match path {
+-        #[cfg(target_os = "linux")]
++        #[cfg(any(target_os = "linux", target_os = "managarm"))]
+         SocketSpec::VSock(spec) => {
+             let socket: OwnedFd = socket::socket(
+                 socket::AddressFamily::Vsock,
+@@ -624,7 +624,7 @@ fn socket_create_and_bind(
+ 
+             Ok((socket, None))
+         }
+-        #[cfg(not(target_os = "linux"))]
++        #[cfg(not(any(target_os = "linux", target_os = "managarm")))]
+         SocketSpec::VSock(_) => unreachable!(),
+ 
+         SocketSpec::Unix(path) => {
+@@ -2331,7 +2331,7 @@ fn main() -> Result<ExitCode, String> {
+         video.format = None;
+     }
+ 
+-    if cfg!(not(target_os = "linux")) && vsock {
++    if cfg!(not(any(target_os = "linux", target_os = "managarm"))) && vsock {
+         return Err(
+             "Waypipe was built with support for VSOCK-type sockets on this platform.".into(),
+         );
+-- 
+2.47.3
+

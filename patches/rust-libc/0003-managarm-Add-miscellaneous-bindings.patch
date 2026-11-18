@@ -1,14 +1,14 @@
-From ef059b3b83005158ac10a6ab57b4c6bdfe650de7 Mon Sep 17 00:00:00 2001
+From b0035ef8b5d324f4fc2e34631be8bcd7e7bd7422 Mon Sep 17 00:00:00 2001
 From: Alexander van der Grinten <alexander.vandergrinten@gmail.com>
 Date: Mon, 9 Nov 2026 19:25:58 +0100
 Subject: [PATCH 3/3] managarm: Add miscellaneous bindings
 
 ---
- src/unix/linux_like/managarm/mod.rs | 351 ++++++++++++++++++++++++++++
- 1 file changed, 351 insertions(+)
+ src/unix/linux_like/managarm/mod.rs | 391 ++++++++++++++++++++++++++++
+ 1 file changed, 391 insertions(+)
 
 diff --git a/src/unix/linux_like/managarm/mod.rs b/src/unix/linux_like/managarm/mod.rs
-index d58593d..69eda14 100644
+index d58593d..1ad0c58 100644
 --- a/src/unix/linux_like/managarm/mod.rs
 +++ b/src/unix/linux_like/managarm/mod.rs
 @@ -1,13 +1,18 @@
@@ -57,10 +57,18 @@ index d58593d..69eda14 100644
      #[repr(align(8))]
      pub struct sched_param {
          pub sched_priority: crate::c_int,
-@@ -257,6 +275,111 @@ s! {
+@@ -257,6 +275,119 @@ s! {
          pub f_namemax: crate::c_ulong,
          pub f_spare: [crate::c_uint; 6usize],
      }
++
++    pub struct sockaddr_vm {
++        pub svm_family: crate::sa_family_t,
++        pub svm_reserved1: c_ushort,
++        pub svm_port: c_uint,
++        pub svm_cid: c_uint,
++        pub svm_zero: [u8; 4],
++    }
 +
 +    pub struct sockaddr_nl {
 +        pub nl_family: crate::sa_family_t,
@@ -169,7 +177,7 @@ index d58593d..69eda14 100644
  }
  
  pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = pthread_cond_t { opaque: [0; 8] };
-@@ -288,13 +411,22 @@ pub const SIGCANCEL: crate::c_int = 32;
+@@ -288,13 +419,22 @@ pub const SIGCANCEL: crate::c_int = 32;
  pub const SIGTIMER: crate::c_int = 33;
  pub const SOCK_STREAM: crate::c_int = 1;
  pub const SOCK_DGRAM: crate::c_int = 2;
@@ -192,7 +200,7 @@ index d58593d..69eda14 100644
  pub const SO_PASSCRED: crate::c_int = 16;
  pub const SO_PEERCRED: crate::c_int = 17;
  pub const SO_TIMESTAMP: crate::c_int = 29;
-@@ -437,19 +569,147 @@ pub const EHWPOISON: crate::c_int = 133;
+@@ -437,19 +577,163 @@ pub const EHWPOISON: crate::c_int = 133;
  pub const O_ACCMODE: crate::c_int = 2097155;
  pub const O_CREAT: crate::c_int = 64;
  pub const O_EXCL: crate::c_int = 128;
@@ -224,6 +232,22 @@ index d58593d..69eda14 100644
 +pub const FALLOC_FL_PUNCH_HOLE: crate::c_int = 2;
  pub const PTHREAD_STACK_MIN: usize = 16384;
 +pub const TIOCSCTTY: crate::Ioctl = 21518;
++pub const TIOCGWINSZ: crate::Ioctl = 21523;
++pub const TIOCSWINSZ: crate::Ioctl = 21524;
++pub const AF_VSOCK: c_int = 40;
++pub const PF_VSOCK: c_int = AF_VSOCK;
++pub const VMADDR_CID_ANY: c_uint = 0xFFFFFFFF;
++pub const VMADDR_CID_HYPERVISOR: c_uint = 0;
++pub const VMADDR_CID_LOCAL: c_uint = 1;
++pub const VMADDR_CID_HOST: c_uint = 2;
++pub const VMADDR_PORT_ANY: c_uint = 0xFFFFFFFF;
++pub const RB_AUTOBOOT: c_int = 0x01234567u32 as i32;
++pub const RB_HALT_SYSTEM: c_int = 0xcdef0123u32 as i32;
++pub const RB_ENABLE_CAD: c_int = 0x89abcdefu32 as i32;
++pub const RB_DISABLE_CAD: c_int = 0x00000000u32 as i32;
++pub const RB_POWER_OFF: c_int = 0x4321fedcu32 as i32;
++pub const RB_SW_SUSPEND: c_int = 0xd000fce2u32 as i32;
++pub const RB_KEXEC: c_int = 0x45584543u32 as i32;
 +pub const FIONREAD: crate::Ioctl = 21531;
  pub const IOV_MAX: crate::c_int = 1024;
  pub const FIONBIO: u64 = 21537;
@@ -340,7 +364,7 @@ index d58593d..69eda14 100644
  
  f! {
      pub unsafe fn CMSG_NXTHDR(
-@@ -490,7 +750,63 @@ extern "C" {
+@@ -490,7 +774,63 @@ extern "C" {
          src_addr: *mut sockaddr,
          addrlen: *mut socklen_t,
      ) -> isize;
@@ -404,7 +428,7 @@ index d58593d..69eda14 100644
      pub fn dl_iterate_phdr(
          callback: ::core::option::Option<
              unsafe extern "C" fn(
-@@ -501,9 +817,42 @@ extern "C" {
+@@ -501,9 +841,42 @@ extern "C" {
          >,
          data: *mut crate::c_void,
      ) -> crate::c_int;
@@ -447,12 +471,28 @@ index d58593d..69eda14 100644
      pub fn getrandom(buffer: *mut crate::c_void, max_size: usize, flags: crate::c_uint) -> isize;
      pub fn preadv(
          fd: crate::c_int,
-@@ -517,6 +866,8 @@ extern "C" {
+@@ -517,6 +890,24 @@ extern "C" {
          iovcnt: crate::c_int,
          offset: off_t,
      ) -> isize;
 +    pub fn futimes(fd: crate::c_int, times: *const crate::timeval) -> crate::c_int;
 +    pub fn lutimes(file: *const crate::c_char, times: *const crate::timeval) -> crate::c_int;
++    pub fn mount(
++        src: *const c_char,
++        target: *const c_char,
++        fstype: *const c_char,
++        flags: c_ulong,
++        data: *const c_void,
++    ) -> c_int;
++    pub fn umount2(target: *const c_char, flags: c_int) -> c_int;
++    pub fn reboot(how_to: c_int) -> c_int;
++    pub fn pidfd_open(pid: pid_t, flags: c_uint) -> c_int;
++    pub fn pidfd_send_signal(
++        pidfd: c_int,
++        sig: c_int,
++        info: *mut crate::siginfo_t,
++        flags: c_uint,
++    ) -> c_int;
  }
  cfg_if! {
      if #[cfg(target_arch = "x86_64")] {
