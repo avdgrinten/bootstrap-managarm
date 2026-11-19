@@ -49,7 +49,7 @@ tasks:
       - '--base-dirs'
       - '--arch'
       - '@OPTION:arch@'
-      - '--xbps-stable'
+      - '--xbps-nightly'
       - '--user'
       - 'managarm'
       - '--groups'
