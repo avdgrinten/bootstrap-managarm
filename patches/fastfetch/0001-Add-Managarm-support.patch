@@ -1,91 +1,88 @@
-From b47256b4e5fdb0b8c6527e8cc616b8977f227cb7 Mon Sep 17 00:00:00 2001
+From 35d6b3f0f189f01c3b7f6a85c9da186623ce6d03 Mon Sep 17 00:00:00 2001
 From: Dennis Bonke <admin@dennisbonke.com>
-Date: Sun, 5 Jan 2025 22:21:51 +0100
+Date: Wed, 18 Nov 2026 23:06:10 +0100
 Subject: [PATCH 1/2] Add Managarm support
 
-Signed-off-by: Dennis Bonke <admin@dennisbonke.com>
 ---
- CMakeLists.txt                              | 112 +++++++++++++++++---
- src/common/processing_linux.c               |   4 +-
- src/detection/displayserver/linux/wmde.c    |   2 +-
- src/detection/initsystem/initsystem_linux.c |   2 +-
- src/detection/libc/libc_linux.c             |   3 +
- src/options/general.h                       |   2 +-
- src/util/FFstrbuf.h                         |   1 +
- src/util/platform/FFPlatform_unix.c         |   2 +-
- src/util/smbiosHelper.c                     |   6 +-
- src/util/smbiosHelper.h                     |   2 +-
- 10 files changed, 114 insertions(+), 22 deletions(-)
+ CMakeLists.txt                     | 118 +++++++++++++++++++++++++----
+ src/common/impl/FFPlatform_unix.c  |   2 +-
+ src/common/impl/processing_linux.c |   2 +-
+ src/common/impl/smbios.c           |   4 +-
+ src/common/smbios.h                |   2 +-
+ src/detection/disk/disk_linux.c    |   2 +-
+ src/detection/gpu/gpu.h            |   2 +-
+ src/detection/gpu/gpu_windows.c    |  36 +++++++++
+ src/detection/libc/libc_linux.c    |   3 +
+ src/detection/packages/packages.h  |   2 +-
+ src/options/general.c              |   8 +-
+ src/options/general.h              |   2 +-
+ 12 files changed, 156 insertions(+), 27 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 71c0e88..7c4ce48 100644
+index a272305..a40d662 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -30,6 +30,8 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "DragonFly")
-     set(DragonFly TRUE CACHE BOOL "..." FORCE)
- elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "SunOS")
-     set(SunOS TRUE CACHE BOOL "..." FORCE)
+@@ -42,6 +42,8 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Haiku")
+     set(Haiku TRUE CACHE BOOL "..." FORCE)
+ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "GNU")
+     set(GNU TRUE CACHE BOOL "..." FORCE)
 +elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "managarm")
 +    set(MANAGARM TRUE CACHE BOOL "..." FORCE) # LINUX means GNU/Linux, not just the kernel
  elseif(NOT APPLE AND NOT WIN32)
      message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
  endif()
-@@ -54,31 +56,31 @@ include(CheckIncludeFile)
+@@ -75,25 +77,25 @@ endif()
  
  include(CMakeDependentOption)
  
--cmake_dependent_option(ENABLE_VULKAN "Enable vulkan" ON "LINUX OR APPLE OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS" OFF)
--cmake_dependent_option(ENABLE_WAYLAND "Enable wayland-client" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD" OFF)
--cmake_dependent_option(ENABLE_XCB_RANDR "Enable xcb-randr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
--cmake_dependent_option(ENABLE_XRANDR "Enable xrandr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
--cmake_dependent_option(ENABLE_DRM "Enable libdrm" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
-+cmake_dependent_option(ENABLE_VULKAN "Enable vulkan" ON "LINUX OR APPLE OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_WAYLAND "Enable wayland-client" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_XCB_RANDR "Enable xcb-randr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_XRANDR "Enable xrandr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_DRM "Enable libdrm" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
- cmake_dependent_option(ENABLE_DRM_AMDGPU "Enable libdrm_amdgpu" ON "LINUX" OFF)
--cmake_dependent_option(ENABLE_GIO "Enable gio-2.0" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
--cmake_dependent_option(ENABLE_DCONF "Enable dconf" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
--cmake_dependent_option(ENABLE_DBUS "Enable dbus-1" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
-+cmake_dependent_option(ENABLE_GIO "Enable gio-2.0" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_DCONF "Enable dconf" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_DBUS "Enable dbus-1" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
- cmake_dependent_option(ENABLE_XFCONF "Enable libxfconf-0" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
--cmake_dependent_option(ENABLE_SQLITE3 "Enable sqlite3" ON "LINUX OR FreeBSD OR APPLE OR OpenBSD OR NetBSD OR SunOS" OFF)
-+cmake_dependent_option(ENABLE_SQLITE3 "Enable sqlite3" ON "LINUX OR FreeBSD OR APPLE OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
- cmake_dependent_option(ENABLE_RPM "Enable rpm" ON "LINUX" OFF)
- cmake_dependent_option(ENABLE_IMAGEMAGICK7 "Enable imagemagick 7" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR APPLE OR WIN32 OR SunOS" OFF)
- cmake_dependent_option(ENABLE_IMAGEMAGICK6 "Enable imagemagick 6" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR APPLE OR SunOS" OFF)
- cmake_dependent_option(ENABLE_CHAFA "Enable chafa" ON "ENABLE_IMAGEMAGICK6 OR ENABLE_IMAGEMAGICK7" OFF)
- cmake_dependent_option(ENABLE_ZLIB "Enable zlib" ON "ENABLE_IMAGEMAGICK6 OR ENABLE_IMAGEMAGICK7" OFF)
--cmake_dependent_option(ENABLE_EGL "Enable egl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR SunOS" OFF)
--cmake_dependent_option(ENABLE_GLX "Enable glx" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
-+cmake_dependent_option(ENABLE_EGL "Enable egl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR SunOS OR MANAGARM" OFF)
-+cmake_dependent_option(ENABLE_GLX "Enable glx" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR MANAGARM" OFF)
- cmake_dependent_option(ENABLE_OSMESA "Enable osmesa" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS" OFF)
- cmake_dependent_option(ENABLE_OPENCL "Enable opencl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS" OFF)
--cmake_dependent_option(ENABLE_FREETYPE "Enable freetype" ON "ANDROID" OFF)
-+cmake_dependent_option(ENABLE_FREETYPE "Enable freetype" ON "ANDROID OR MANAGARM" OFF)
- cmake_dependent_option(ENABLE_PULSE "Enable pulse" ON "LINUX OR OpenBSD OR NetBSD OR SunOS" OFF)
- cmake_dependent_option(ENABLE_DDCUTIL "Enable ddcutil" ON "LINUX" OFF)
- cmake_dependent_option(ENABLE_DIRECTX_HEADERS "Enable DirectX headers for WSL" ON "LINUX" OFF)
--cmake_dependent_option(ENABLE_ELF "Enable libelf" ON "LINUX OR ANDROID OR DragonFly" OFF)
-+cmake_dependent_option(ENABLE_ELF "Enable libelf" ON "LINUX OR ANDROID OR DragonFly OR MANAGARM" OFF)
+-cmake_dependent_option(ENABLE_VULKAN "Enable vulkan" ON "LINUX OR APPLE OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS OR Haiku OR GNU" OFF)
+-cmake_dependent_option(ENABLE_WAYLAND "Enable wayland-client" ON "ANDROID OR LINUX OR FreeBSD OR OpenBSD OR NetBSD" OFF)
+-cmake_dependent_option(ENABLE_XCB_RANDR "Enable xcb-randr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
+-cmake_dependent_option(ENABLE_XRANDR "Enable xrandr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
+-cmake_dependent_option(ENABLE_DRM "Enable libdrm" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR GNU" OFF)
++cmake_dependent_option(ENABLE_VULKAN "Enable vulkan" ON "LINUX OR APPLE OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS OR Haiku OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_WAYLAND "Enable wayland-client" ON "ANDROID OR LINUX OR FreeBSD OR OpenBSD OR NetBSD OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_XCB_RANDR "Enable xcb-randr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_XRANDR "Enable xrandr" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_DRM "Enable libdrm" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR GNU OR MANAGARM" OFF)
+ cmake_dependent_option(ENABLE_VADRM "Enable libva-drm" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR GNU" OFF)
+ cmake_dependent_option(ENABLE_VAX11 "Enable libva-x11" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR GNU" OFF)
+ cmake_dependent_option(ENABLE_VDPAU "Enable vdpau" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR SunOS OR GNU" OFF)
+-cmake_dependent_option(ENABLE_GIO "Enable gio-2.0" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
+-cmake_dependent_option(ENABLE_DCONF "Enable dconf" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
++cmake_dependent_option(ENABLE_GIO "Enable gio-2.0" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_DCONF "Enable dconf" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU OR MANAGARM" OFF)
+ cmake_dependent_option(ENABLE_EET "Enable eet" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
+-cmake_dependent_option(ENABLE_DBUS "Enable dbus-1" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR Haiku OR GNU" OFF)
+-cmake_dependent_option(ENABLE_SQLITE3 "Enable sqlite3" ON "LINUX OR FreeBSD OR APPLE OR OpenBSD OR NetBSD OR SunOS OR GNU" OFF)
++cmake_dependent_option(ENABLE_DBUS "Enable dbus-1" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR Haiku OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_SQLITE3 "Enable sqlite3" ON "LINUX OR FreeBSD OR APPLE OR OpenBSD OR NetBSD OR SunOS OR GNU OR MANAGARM" OFF)
+ cmake_dependent_option(ENABLE_RPM "Enable rpm" ON "LINUX OR GNU" OFF)
+-cmake_dependent_option(ENABLE_EGL "Enable egl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR WIN32 OR SunOS OR Haiku OR GNU" OFF)
+-cmake_dependent_option(ENABLE_GLX "Enable glx" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU" OFF)
++cmake_dependent_option(ENABLE_EGL "Enable egl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR WIN32 OR SunOS OR Haiku OR GNU OR MANAGARM" OFF)
++cmake_dependent_option(ENABLE_GLX "Enable glx" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR ANDROID OR SunOS OR GNU OR MANAGARM" OFF)
+ cmake_dependent_option(ENABLE_OPENCL "Enable opencl" ON "LINUX OR FreeBSD OR OpenBSD OR NetBSD OR WIN32 OR ANDROID OR SunOS OR Haiku OR GNU" OFF)
+ cmake_dependent_option(ENABLE_FREETYPE "Enable freetype" ON "ANDROID" OFF)
+-cmake_dependent_option(ENABLE_ELF "Enable libelf" ON "LINUX OR ANDROID OR DragonFly OR Haiku OR GNU" OFF)
++cmake_dependent_option(ENABLE_ELF "Enable libelf" ON "LINUX OR ANDROID OR DragonFly OR Haiku OR GNU OR MANAGARM" OFF)
  cmake_dependent_option(ENABLE_THREADS "Enable multithreading" ON "Threads_FOUND" OFF)
- cmake_dependent_option(ENABLE_LIBZFS "Enable libzfs" ON "LINUX OR FreeBSD OR SunOS" OFF)
- cmake_dependent_option(ENABLE_PCIACCESS "Enable libpciaccess" ON "NetBSD OR OpenBSD OR SunOS" OFF)
-@@ -1079,6 +1081,88 @@ elseif(SunOS)
-         src/util/platform/FFPlatform_unix.c
-         src/util/binary_linux.c
-     )
+ 
+ option(ENABLE_IMAGE_LOGO "Enable image logos (sixel / kitty / iTerm / chafa)" ON)
+@@ -1458,6 +1460,94 @@ elseif(GNU)
+         src/detection/wmtheme/wmtheme_linux.c
+         src/detection/camera/camera_nosupport.c
+    )
 +elseif(MANAGARM)
 +    list(APPEND LIBFASTFETCH_SRC
-+        src/common/dbus.c
-+        src/common/io/io_unix.c
-+        src/common/netif/netif_linux.c
-+        src/common/networking_linux.c
-+        src/common/processing_linux.c
++        src/common/impl/dbus.c
++        src/common/impl/io_unix.c
++        src/common/impl/netif_linux.c
++        src/common/impl/networking_linux.c
++        src/common/impl/processing_linux.c
++        src/common/impl/FFPlatform_unix.c
++        src/common/impl/binary_linux.c
++        src/common/impl/kmod_nosupport.c
 +        src/detection/battery/battery_linux.c
 +        src/detection/bios/bios_nosupport.c # No smbios exposed yet
 +        src/detection/board/board_nosupport.c # No smbios exposed yet
@@ -93,9 +90,10 @@ index 71c0e88..7c4ce48 100644
 +        src/detection/brightness/brightness_nosupport.c
 +        src/detection/btrfs/btrfs_nosupport.c
 +        src/detection/chassis/chassis_nosupport.c
++        src/detection/codec/codec_linux.c
 +        src/detection/cpu/cpu_linux.c # No /proc/cpuinfo
 +        src/detection/cpucache/cpucache_nosupport.c
-+        src/detection/cpuusage/cpuusage_nosupport.c # /proc/stat is filled with stubs
++        src/detection/cpuusage/cpuusage_linux.c
 +        src/detection/cursor/cursor_nosupport.c # No cursor support?
 +        src/detection/bluetooth/bluetooth_nosupport.c
 +        src/detection/bluetoothradio/bluetoothradio_nosupport.c
@@ -105,21 +103,24 @@ index 71c0e88..7c4ce48 100644
 +        src/detection/physicalmemory/physicalmemory_nosupport.c
 +        src/detection/diskio/diskio_nosupport.c
 +        src/detection/displayserver/linux/displayserver_linux.c
++        src/detection/displayserver/linux/common.c
 +        src/detection/displayserver/linux/drm.c
 +        src/detection/displayserver/linux/wayland/wayland.c
++        src/detection/displayserver/linux/wayland/mutter.c
 +        src/detection/displayserver/linux/wayland/global-output.c
-+        src/detection/displayserver/linux/wayland/zwlr-output.c
++        src/detection/displayserver/linux/wayland/wl-output-protocol.c
++        src/detection/displayserver/linux/wayland/wp-color-management-v1-protocol.c
 +        src/detection/displayserver/linux/wayland/kde-output.c
-+        src/detection/displayserver/linux/wayland/wlr-output-management-unstable-v1-protocol.c
 +        src/detection/displayserver/linux/wayland/kde-output-device-v2-protocol.c
-+        src/detection/displayserver/linux/wayland/kde-output-order-v1-protocol.c
 +        src/detection/displayserver/linux/wayland/xdg-output-unstable-v1-protocol.c
 +        src/detection/displayserver/linux/wmde.c
 +        src/detection/displayserver/linux/xcb.c
 +        src/detection/displayserver/linux/xlib.c
 +        src/detection/font/font_linux.c
-+        src/detection/gpu/gpu_nosupport.c
++        src/detection/gpu/gpu_drm.c
++        src/detection/gpu/gpu_linux.c
 +        src/detection/gpu/gpu_pci.c
++        src/detection/gpu/gpu_windows.c
 +        src/detection/gtk_qt/gtk.c
 +        src/detection/host/host_linux.c
 +        src/detection/host/host_mac.c
@@ -132,188 +133,268 @@ index 71c0e88..7c4ce48 100644
 +        src/detection/locale/locale_linux.c
 +        src/detection/localip/localip_linux.c
 +        src/detection/gamepad/gamepad_nosupport.c
-+        src/detection/media/media_nosupport.c
-+        src/detection/memory/memory_nosupport.c # No /proc/meminfo
++        src/detection/media/media_linux.c
++        src/detection/memory/memory_linux.c # No /proc/meminfo
 +        src/detection/mouse/mouse_nosupport.c # /sys/class/input ain't good enough
 +        src/detection/netio/netio_nosupport.c # /sys/class/net missing items
 +        src/detection/opengl/opengl_linux.c
 +        src/detection/os/os_linux.c # Missing support for Managarm
 +        src/detection/packages/packages_linux.c # This seems broken????
++        src/detection/packages/packages_nix.c
 +        src/detection/poweradapter/poweradapter_linux.c
 +        src/detection/processes/processes_linux.c
 +        src/detection/gtk_qt/qt.c
-+        src/detection/sound/sound_nosupport.c # No sound lol
++        src/detection/sound/sound_linux.c # No sound lol
 +        src/detection/swap/swap_linux.c
 +        src/detection/terminalfont/terminalfont_linux.c
 +        src/detection/terminalshell/terminalshell_linux.c
 +        src/detection/terminalsize/terminalsize_linux.c
 +        src/detection/theme/theme_linux.c
++        src/detection/top/top_linux.c
 +        src/detection/tpm/tpm_nosupport.c # No tpm
 +        src/detection/uptime/uptime_linux.c
 +        src/detection/users/users_linux.c
-+        src/detection/wallpaper/wallpaper_nosupport.c # No wallpapers
++        src/detection/wallpaper/wallpaper_linux.c # No wallpapers
 +        src/detection/wifi/wifi_nosupport.c # No wifi
 +        src/detection/wm/wm_nosupport.c
 +        src/detection/de/de_linux.c
 +        src/detection/wmtheme/wmtheme_linux.c
 +        src/detection/camera/camera_nosupport.c # No camera
-+        src/detection/zpool/zpool_nosupport.c # No zpool
-+        src/util/platform/FFPlatform_unix.c
-+        src/util/binary_linux.c
 +    )
  endif()
  
- if(ENABLE_DIRECTX_HEADERS)
-@@ -1189,6 +1273,8 @@ elseif(NetBSD)
-     target_compile_definitions(libfastfetch PUBLIC _GNU_SOURCE)
-     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-char-subscripts")
-     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,/usr/X11R7/lib -Wl,-rpath,/usr/pkg/lib") # ditto
-+elseif(MANAGARM)
-+    target_compile_definitions(libfastfetch PUBLIC _GNU_SOURCE _XOPEN_SOURCE _ATFILE_SOURCE)
+ if(ENABLE_TRACER)
+@@ -1477,7 +1567,7 @@ if(ENABLE_TRACER)
  endif()
  
- if(FreeBSD OR OpenBSD OR NetBSD)
-diff --git a/src/common/processing_linux.c b/src/common/processing_linux.c
-index 63d3951..06f8fd0 100644
---- a/src/common/processing_linux.c
-+++ b/src/common/processing_linux.c
-@@ -141,7 +141,7 @@ void ffProcessGetInfoLinux(pid_t pid, FFstrbuf* processName, FFstrbuf* exe, cons
-     assert(processName->length > 0);
-     ffStrbufClear(exe);
+ # Proprietary GPU driver APIs
+-if(LINUX OR FreeBSD OR WIN32)
++if(LINUX OR FreeBSD OR WIN32 OR MANAGARM)
+     list(APPEND LIBFASTFETCH_SRC src/detection/gpu/gpu_nvidia.c)
+     list(APPEND LIBFASTFETCH_SRC src/detection/gpu/gpu_mthreads.c)
+ endif()
+@@ -1633,7 +1723,7 @@ elseif(DragonFly AND EXISTS "/usr/local/bin/objdump")
+     endif()
+ endif()
  
--    #ifdef __linux__
-+    #if defined(__linux__) || defined(__managarm__)
+-if(LINUX)
++if(LINUX OR MANAGARM)
+     target_compile_definitions(libfastfetch PUBLIC _GNU_SOURCE _XOPEN_SOURCE _ATFILE_SOURCE __STDC_WANT_LIB_EXT1__ _FILE_OFFSET_BITS=64 _TIME_BITS=64) # "$<$<CONFIG:Release>:_FORTIFY_SOURCE=3>"
+ elseif(ANDROID)
+     target_compile_definitions(libfastfetch PUBLIC _GNU_SOURCE _XOPEN_SOURCE _FILE_OFFSET_BITS=64 "$<$<CONFIG:DEBUG>:__BIONIC_FORTIFY>" "$<$<CONFIG:DEBUG>:__BIONIC_FORTIFY_RUNTIME_CHECKS_ENABLED>")
+diff --git a/src/common/impl/FFPlatform_unix.c b/src/common/impl/FFPlatform_unix.c
+index 8ec80ab..c4c1c5d 100644
+--- a/src/common/impl/FFPlatform_unix.c
++++ b/src/common/impl/FFPlatform_unix.c
+@@ -28,7 +28,7 @@
  
-     char filePath[64];
-     snprintf(filePath, sizeof(filePath), "/proc/%d/cmdline", (int)pid);
-@@ -321,7 +321,7 @@ const char* ffProcessGetBasicInfoLinux(pid_t pid, FFstrbuf* name, pid_t* ppid, i
-     if (pid <= 0)
+ static void getExePath(FFPlatform* platform) {
+     char exePath[PATH_MAX];
+-#if defined(__linux__) || defined(__GNU__)
++#if defined(__linux__) || defined(__GNU__) || defined(__managarm__)
+     ssize_t exePathLen = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+     if (exePathLen > 0) {
+         exePath[exePathLen] = '\0';
+diff --git a/src/common/impl/processing_linux.c b/src/common/impl/processing_linux.c
+index 1b599fa..658d047 100644
+--- a/src/common/impl/processing_linux.c
++++ b/src/common/impl/processing_linux.c
+@@ -492,7 +492,7 @@ const char* ffProcessGetBasicInfoLinux(pid_t pid, FFstrbuf* name, pid_t* ppid, i
          return "Invalid pid";
+     }
  
--    #ifdef __linux__
-+    #if defined(__linux__) || defined(__managarm__)
+-#if defined(__linux__) || defined(__GNU__)
++#if defined(__linux__) || defined(__GNU__) || defined(__managarm__)
  
      char procFilePath[64];
-     if (ppid)
-diff --git a/src/detection/displayserver/linux/wmde.c b/src/detection/displayserver/linux/wmde.c
-index 557be31..473e834 100644
---- a/src/detection/displayserver/linux/wmde.c
-+++ b/src/detection/displayserver/linux/wmde.c
-@@ -348,7 +348,7 @@ static const char* getFromProcesses(FFDisplayServerResult* result)
-                 break;
-         }
-     }
--#elif __linux__
-+#elif defined(__linux__) || defined(__managarm__)
-     FF_AUTO_CLOSE_DIR DIR* procdir = opendir("/proc");
-     if(procdir == NULL)
-         return "opendir(\"/proc\") failed";
-diff --git a/src/detection/initsystem/initsystem_linux.c b/src/detection/initsystem/initsystem_linux.c
-index 6776ef7..e2e4142 100644
---- a/src/detection/initsystem/initsystem_linux.c
-+++ b/src/detection/initsystem/initsystem_linux.c
-@@ -48,7 +48,7 @@ const char* ffDetectInitSystem(FFInitSystemResult* result)
+     #if __linux__
+diff --git a/src/common/impl/smbios.c b/src/common/impl/smbios.c
+index 41c4c89..f338fef 100644
+--- a/src/common/impl/smbios.c
++++ b/src/common/impl/smbios.c
+@@ -141,7 +141,7 @@ static bool parseSmbiosTable(const uint8_t* data, uint32_t length) {
+     return true;
+ }
  
-     if (instance.config.general.detectVersion)
-     {
--        #if __linux__ && !__ANDROID__
-+        #if (__linux__ && !__ANDROID__) || defined(__managarm__)
-         if (ffStrbufEqualS(&result->name, "systemd"))
-         {
-             ffBinaryExtractStrings(result->exe.chars, extractSystemdVersion, &result->version, (uint32_t) strlen("systemd 0.0 running in x"));
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun) || defined(__HAIKU__) || defined(__OpenBSD__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun) || defined(__HAIKU__) || defined(__OpenBSD__) || defined(__GNU__) || defined(__managarm__)
+     #include <fcntl.h>
+     #include <sys/stat.h>
+     #include <sys/types.h>
+@@ -156,7 +156,7 @@ static bool parseSmbiosTable(const uint8_t* data, uint32_t length) {
+         #include "common/sysctl.h"
+     #endif
+ 
+-    #ifdef __linux__
++    #if defined(__linux__) || defined(__managarm__)
+ bool ffGetSmbiosValue(const char* devicesPath, const char* classPath, FFstrbuf* buffer) {
+     // /sys/class/dmi/id/* are all pseudo-files with very small content
+     // so reading the whole file at once is efficient
+diff --git a/src/common/smbios.h b/src/common/smbios.h
+index 246cbe0..312ebbf 100644
+--- a/src/common/smbios.h
++++ b/src/common/smbios.h
+@@ -99,6 +99,6 @@ typedef const FFSmbiosHeader* FFSmbiosHeaderTable[FF_SMBIOS_TYPE__MAX];
+ [[gnu::nonnull(1), gnu::pure, nodiscard]] const FFSmbiosHeader* ffSmbiosNextEntry(const FFSmbiosHeader* header);
+ [[nodiscard]] const FFSmbiosHeaderTable* ffGetSmbiosHeaderTable(void);
+ 
+-#ifdef __linux__
++#if defined(__linux__) || defined(__managarm__)
+ [[gnu::nonnull(1, 2, 3)]] bool ffGetSmbiosValue(const char* devicesPath, const char* classPath, FFstrbuf* buffer);
+ #endif
+diff --git a/src/detection/disk/disk_linux.c b/src/detection/disk/disk_linux.c
+index 59c88d9..1ef269a 100644
+--- a/src/detection/disk/disk_linux.c
++++ b/src/detection/disk/disk_linux.c
+@@ -11,7 +11,7 @@
+ #include <sys/stat.h>
+ #include <sys/statvfs.h>
+ 
+-#if defined(STATX_BTIME) && !defined(__ANDROID__)
++#if defined(STATX_BTIME) && !defined(__ANDROID__) && !defined(__managarm__)
+     #include <sys/syscall.h>
+ #endif
+ 
+diff --git a/src/detection/gpu/gpu.h b/src/detection/gpu/gpu.h
+index 584a18b..ebfb7a4 100644
+--- a/src/detection/gpu/gpu.h
++++ b/src/detection/gpu/gpu.h
+@@ -79,7 +79,7 @@ typedef struct FFGpuDriverPciBusId {
+     uint32_t func;
+ } FFGpuDriverPciBusId;
+ 
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
+ #define FF_GPU_HAS_PCI_IDS 1
+ void ffGPUParsePciIdsFile(const FFstrbuf* content, uint8_t subclass, uint16_t vendor, uint16_t device, FFGPUResult* gpu);
+ void ffGPUFillVendorAndName(uint8_t subclass, uint16_t vendor, uint16_t device, FFGPUResult* gpu);
+diff --git a/src/detection/gpu/gpu_windows.c b/src/detection/gpu/gpu_windows.c
+index 526ff66..112bd41 100644
+--- a/src/detection/gpu/gpu_windows.c
++++ b/src/detection/gpu/gpu_windows.c
+@@ -238,6 +238,42 @@ static bool queryDeviceInfoCM(FFGPUResult* gpu, uint64_t luid, D3DKMT_DEVICE_IDS
+     #include <sys/ioctl.h>
+     #include <uchar.h>
+ 
++static size_t c16rtomb(char* __s, char16_t __c16, mbstate_t* __ps) {
++    (void) __ps;
++    static char32_t pending_high = 0;
++    char32_t c;
++    if (pending_high) {
++        if (__c16 >= 0xDC00 && __c16 <= 0xDFFF)
++            c = 0x10000 + ((pending_high - 0xD800) << 10) + (__c16 - 0xDC00);
++        else { pending_high = 0; return (size_t) -1; }
++        pending_high = 0;
++    } else if (__c16 >= 0xD800 && __c16 <= 0xDBFF) {
++        pending_high = __c16;
++        return 0;
++    } else if (__c16 >= 0xDC00 && __c16 <= 0xDFFF) {
++        return (size_t) -1;
++    } else {
++        c = __c16;
++    }
++    if (c < 0x80) { __s[0] = (char) c; return 1; }
++    if (c < 0x800) {
++        __s[0] = (char) (0xC0 | (c >> 6));
++        __s[1] = (char) (0x80 | (c & 0x3F));
++        return 2;
++    }
++    if (c < 0x10000) {
++        __s[0] = (char) (0xE0 | (c >> 12));
++        __s[1] = (char) (0x80 | ((c >> 6) & 0x3F));
++        __s[2] = (char) (0x80 | (c & 0x3F));
++        return 3;
++    }
++    __s[0] = (char) (0xF0 | (c >> 18));
++    __s[1] = (char) (0x80 | ((c >> 12) & 0x3F));
++    __s[2] = (char) (0x80 | ((c >> 6) & 0x3F));
++    __s[3] = (char) (0x80 | (c & 0x3F));
++   return 4;
++}
++
+ int dxgfd = -2;
+ 
+ static void ffStrbufSetWS(FFstrbuf* strbuf, const char16_t* str) {
 diff --git a/src/detection/libc/libc_linux.c b/src/detection/libc/libc_linux.c
-index 19e8e83..1ade513 100644
+index 358b717..2009944 100644
 --- a/src/detection/libc/libc_linux.c
 +++ b/src/detection/libc/libc_linux.c
-@@ -13,6 +13,9 @@ const char* ffDetectLibc(FFLibcResult* result)
+@@ -10,6 +10,9 @@ const char* ffDetectLibc(FFLibcResult* result) {
  #elif defined(__GNU_LIBRARY__)
      result->name = "glibc";
      result->version = FF_STR(__GLIBC__) "." FF_STR(__GLIBC_MINOR__);
-+#elif defined(__managarm__)
++#elif defined(__mlibc__)
 +    result->name = "mlibc";
-+    result->version = "rolling release";
++    result->version = "7.0.0"; // TODO: Get version from mlibc
  #else
      result->name = "musl";
      #ifdef FF_MUSL_VERSION
+diff --git a/src/detection/packages/packages.h b/src/detection/packages/packages.h
+index e91dfe2..dd4bba4 100644
+--- a/src/detection/packages/packages.h
++++ b/src/detection/packages/packages.h
+@@ -69,7 +69,7 @@ bool ffPackagesReadCache(FFstrbuf* cacheDir, FFstrbuf* cacheContent, const char*
+ bool ffPackagesReadCacheKey(FFstrbuf* cacheDir, FFstrbuf* cacheContent, uint64_t cacheKey, const char* packageId, uint32_t* result);
+ bool ffPackagesWriteCache(FFstrbuf* cacheDir, FFstrbuf* cacheContent, uint32_t num_elements);
+ 
+-#if defined(__linux__) || defined(__APPLE__) || defined(__GNU__)
++#if defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__managarm__)
+ uint32_t ffPackagesGetNix(FFstrbuf* baseDir, const char* dirname);
+ #endif
+ #ifndef _WIN32
+diff --git a/src/options/general.c b/src/options/general.c
+index b3a29a1..f7bf164 100644
+--- a/src/options/general.c
++++ b/src/options/general.c
+@@ -63,7 +63,7 @@ const char* ffOptionsParseGeneralJsonConfig(FFOptionsGeneral* options, yyjson_va
+ #endif
+             }
+         }
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
+         else if (unsafe_yyjson_equals_str(key, "dsForceDrm")) {
+             if (yyjson_is_str(val)) {
+                 int value;
+@@ -101,7 +101,7 @@ bool ffOptionsParseGeneralCommandLine(FFOptionsGeneral* options, const char* key
+     } else if (ffStrEqualsIgnCase(key, "--player-name")) {
+         ffOptionParseString(key, value, &options->playerName);
+     }
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
+     else if (ffStrEqualsIgnCase(key, "--ds-force-drm")) {
+         if (ffOptionParseBoolean(value)) {
+             options->dsForceDrm = FF_DS_FORCE_DRM_TYPE_TRUE;
+@@ -125,7 +125,7 @@ void ffOptionsInitGeneral(FFOptionsGeneral* options) {
+     options->detectVersion = true;
+     ffStrbufInit(&options->playerName);
+ 
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
+     options->dsForceDrm = FF_DS_FORCE_DRM_TYPE_FALSE;
+ #endif
+ }
+@@ -147,7 +147,7 @@ void ffOptionsGenerateGeneralJsonConfig(FFdata* data, FFOptionsGeneral* options)
+ 
+     yyjson_mut_obj_add_strbuf(doc, obj, "playerName", &options->playerName);
+ 
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
+ 
+     switch (options->dsForceDrm) {
+         case FF_DS_FORCE_DRM_TYPE_FALSE:
 diff --git a/src/options/general.h b/src/options/general.h
-index 8cb0d48..a16163c 100644
+index cf5207b..d9e4b0b 100644
 --- a/src/options/general.h
 +++ b/src/options/general.h
-@@ -16,7 +16,7 @@ typedef struct FFOptionsGeneral
-     bool detectVersion;
- 
-     // Module options that cannot be put in module option structure
--    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__)
-+    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__managarm__)
+@@ -15,7 +15,7 @@ typedef struct FFOptionsGeneral {
      FFstrbuf playerName;
-     bool escapeBedrock;
+ 
+ // Module options that cannot be put in module option structure
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__managarm__)
      FFDsForceDrmType dsForceDrm;
-diff --git a/src/util/FFstrbuf.h b/src/util/FFstrbuf.h
-index 1c754b1..3512038 100644
---- a/src/util/FFstrbuf.h
-+++ b/src/util/FFstrbuf.h
-@@ -7,6 +7,7 @@
- #include <stdbool.h>
- #include <stdio.h>
- #include <string.h>
-+#include <strings.h>
- #include <stdlib.h>
- #include <assert.h>
- 
-diff --git a/src/util/platform/FFPlatform_unix.c b/src/util/platform/FFPlatform_unix.c
-index b0d0ac1..0c89972 100644
---- a/src/util/platform/FFPlatform_unix.c
-+++ b/src/util/platform/FFPlatform_unix.c
-@@ -19,7 +19,7 @@
- static void getExePath(FFPlatform* platform)
- {
-     char exePath[PATH_MAX + 1];
--    #ifdef __linux__
-+    #if defined(__linux__ ) || defined(__managarm__)
-         ssize_t exePathLen = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-         exePath[exePathLen] = '\0';
-     #elif defined(__APPLE__)
-diff --git a/src/util/smbiosHelper.c b/src/util/smbiosHelper.c
-index 9366f8a..50c8dc4 100644
---- a/src/util/smbiosHelper.c
-+++ b/src/util/smbiosHelper.c
-@@ -50,13 +50,13 @@ const FFSmbiosHeader* ffSmbiosNextEntry(const FFSmbiosHeader* header)
-     return (const FFSmbiosHeader*) (p + 1);
- }
- 
--#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun)
-+#if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__managarm__)
- #include <fcntl.h>
- #include <sys/stat.h>
- #include <sys/mman.h>
- #include <stddef.h>
- 
--#ifdef __linux__
-+#if defined(__linux__) || defined(__managarm__)
-     #include "common/properties.h"
- #elif defined(__FreeBSD__)
-     #include "common/settings.h"
-@@ -65,6 +65,8 @@ const FFSmbiosHeader* ffSmbiosNextEntry(const FFSmbiosHeader* header)
-     #define loff_t off_t
  #endif
- 
-+typedef off_t loff_t;
-+
- bool ffGetSmbiosValue(const char* devicesPath, const char* classPath, FFstrbuf* buffer)
- {
-     if (ffReadFileBuffer(devicesPath, buffer))
-diff --git a/src/util/smbiosHelper.h b/src/util/smbiosHelper.h
-index 1bce70b..98b01a0 100644
---- a/src/util/smbiosHelper.h
-+++ b/src/util/smbiosHelper.h
-@@ -89,6 +89,6 @@ typedef const FFSmbiosHeader* FFSmbiosHeaderTable[FF_SMBIOS_TYPE_END_OF_TABLE];
- const FFSmbiosHeader* ffSmbiosNextEntry(const FFSmbiosHeader* header);
- const FFSmbiosHeaderTable* ffGetSmbiosHeaderTable();
- 
--#ifdef __linux__
-+#if defined(__linux__) || defined(__managarm__)
- bool ffGetSmbiosValue(const char* devicesPath, const char* classPath, FFstrbuf* buffer);
- #endif
+ } FFOptionsGeneral;
 -- 
 2.55.0
 

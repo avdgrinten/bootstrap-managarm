@@ -185,8 +185,8 @@ packages:
     source:
       subdir: ports
       git: 'https://github.com/fastfetch-cli/fastfetch.git'
-      tag: '2.33.0'
-      version: '2.33.0'
+      tag: '2.71.0'
+      version: '2.71.0'
     tools_required:
       - host-cmake
       - system-gcc
@@ -203,7 +203,7 @@ packages:
       - wayland
       - yyjson
       - zlib
-    revision: 8
+    revision: 1
     configure:
       - args:
         - 'cmake'
@@ -218,8 +218,7 @@ packages:
         - '-DENABLE_CHAFA=no'
         - '-DENABLE_DBUS=no'
         - '-DENABLE_DCONF=no'
-        - '-DENABLE_DDCUTIL=no'
-        - '-DENABLE_DRM=no' # Broken, does a funny DRM ioctl
+        - '-DENABLE_DRM=yes'
         - '-DENABLE_ELF=yes'
         - '-DENABLE_EGL=yes'
         - '-DENABLE_GIO=no'
@@ -227,13 +226,10 @@ packages:
         - '-DENABLE_IMAGEMAGICK6=no'
         - '-DENABLE_IMAGEMAGICK7=no'
         - '-DENABLE_OPENCL=no'
-        - '-DENABLE_OSMESA=no'
-        - '-DENABLE_PULSE=no'
         - '-DENABLE_SQLITE3=yes'
         - '-DENABLE_VULKAN=no'
         - '-DENABLE_WAYLAND=yes'
         - '-DENABLE_XCB_RANDR=yes'
-        - '-DENABLE_XFCONF=no'
         - '-DENABLE_XRANDR=yes'
         - '-DBUILD_TESTS=no'
         - '-DPACKAGES_DISABLE_XBPS=OFF'
