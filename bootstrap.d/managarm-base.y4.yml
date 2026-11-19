@@ -72,7 +72,7 @@ packages:
     source:
       subdir: meta-sources
       version: '1.0'
-    revision: 9
+    revision: 10
     configure: []
     build:
       # Laid out as in extrafiles/managarm-scripts, so that the scripts find their data files next to themselves.

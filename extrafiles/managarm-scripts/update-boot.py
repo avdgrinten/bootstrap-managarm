@@ -353,8 +353,10 @@ def make_esp_tree(root, arch, config, tree, *, has_bios_boot):
 
 def cmd_update_esp(args):
     config = Config.load(args.root)
+    # Installations without an ESP are booted with boot files from elsewhere (e.g., midgard's VMs).
     if not config.esp_partuuid:
-        raise ConfigError(f"{args.root}: etc/managarm/partitions.toml does not set esp.partuuid")
+        print("update-boot: etc/managarm/partitions.toml does not set esp.partuuid, nothing to update")
+        return
     disk, esp, has_bios_boot = find_esp(config.esp_partuuid)
 
     limine_dir = os.path.join(args.root, "usr/share/limine")
